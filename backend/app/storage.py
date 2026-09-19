@@ -15,8 +15,8 @@ SNAPSHOT_MIN_INTERVAL_MINUTES = 15
 
 _TITLE_STOPWORDS = {
     "about", "after", "again", "against", "also", "been", "before", "being",
-    "best", "for", "from", "have", "how", "into", "just", "latest", "more",
-    "most", "new", "our", "over", "real", "september", "that", "the",
+    "best", "for", "from", "have", "how", "into", "just", "latest", "like",
+    "more", "most", "new", "our", "over", "real", "september", "that", "the",
     "their", "them", "then", "there", "these", "they", "this", "those",
     "today", "top", "video", "what", "when", "where", "which", "while",
     "with", "your", "you", "why", "2026",
@@ -33,9 +33,10 @@ _TITLE_SEO_NOISE = {
 # These words can be useful inside phrases ("copy trading", "trading journal")
 # but are too broad to surface as meaningful one-word title patterns.
 _TITLE_GENERIC_SINGLETONS = {
-    "bitcoin", "btc", "crypto", "cryptocurrency", "day", "gold", "live",
-    "market", "markets", "motivation", "news", "setup", "stock", "stockmarket",
-    "strategy", "trade", "trader", "traders", "trading", "update",
+    "action", "bitcoin", "btc", "comedy", "crypto", "cryptocurrency", "day",
+    "funny", "gold", "live", "market", "markets", "motivation", "news",
+    "setup", "stock", "stockmarket", "strategy", "trade", "trader", "traders",
+    "trading", "update",
 }
 
 # Pairs made only from broad market/category words are usually just niche labels
@@ -54,6 +55,21 @@ _TITLE_NORMALIZATIONS = {
     "daytrading": ("day", "trading"),
     "stockmarket": ("stock", "market"),
     "tradingjournal": ("trading", "journal"),
+}
+
+# Deterministic phrase cleanup only. These are not AI interpretations:
+# they normalize obvious word-order variants and remove filler bigrams that
+# repeatedly appear because of surrounding sentence structure.
+_TITLE_PHRASE_CANONICAL = {
+    "trading forex": "forex trading",
+}
+
+_TITLE_PHRASE_BLOCKLIST = {
+    "action trading",
+    "funny comedy",
+    "motivation trading",
+    "trading like",
+    "trading motivation",
 }
 
 
@@ -133,7 +149,12 @@ def _title_terms(title: str) -> set[str]:
         # "copy trading", "trading journal", "gold strategy", and "trading setup".
         if first in _TITLE_BROAD_CATEGORY_TERMS and second in _TITLE_BROAD_CATEGORY_TERMS:
             continue
-        terms.add(f"{first} {second}")
+
+        phrase = f"{first} {second}"
+        phrase = _TITLE_PHRASE_CANONICAL.get(phrase, phrase)
+        if phrase in _TITLE_PHRASE_BLOCKLIST:
+            continue
+        terms.add(phrase)
 
     return terms
 
@@ -880,7 +901,7 @@ class SnapshotStore:
             )[:8],
             "notes": {
                 "topicPatterns": "Based on real Discover searches stored after Milestone 5.",
-                "titleSignals": "Phrase-first, SEO-cleaned literal title signals repeated across at least two different channels; generic words and location noise are suppressed; no AI labeling.",
+                "titleSignals": "Phrase-first, SEO-cleaned literal title signals repeated across at least two different channels; generic words, location noise, and known filler bigrams are suppressed; obvious phrase-order variants are normalized; no AI labeling.",
                 "growthPatterns": "Uses only videos with at least two stored snapshots.",
             },
         }
