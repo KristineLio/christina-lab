@@ -936,7 +936,7 @@
     }
     const related = allKnownVideos().filter((x) => x.topic === v.topic && x.id !== v.id).slice(0, 4);
     const n = state.notes[v.id] || { why: "", adapt: "", angle: "" };
-    if (v.source === "youtube") return liveAnalysis(v, related, n);
+    if (v.source === "youtube" || v.persistedResearch) return liveAnalysis(v, related, n);
     return `
       <div class="video-head">
         ${img(v.thumbAlt, "thumb")}
