@@ -829,19 +829,21 @@ class SnapshotStore:
             )
         content_patterns.sort(key=lambda row: row["videos"], reverse=True)
 
-        latest_analysis_by_video = {row["video_id"]: row for row in latest_analyses}
+        # Creative/title patterns must only use real Discover candidates.
+        # The much larger videos table also contains channel-history uploads that
+        # Christina Lab fetched only for baselines. Including those polluted
+        # creative patterns with unrelated titles from a candidate's channel.
         term_map: dict[str, dict] = defaultdict(
             lambda: {"videos": set(), "channels": set(), "opportunityByVideo": {}}
         )
-        for row in video_rows:
+        for row in latest_analyses:
             for term in _title_terms(row["title"]):
                 bucket = term_map[term]
                 bucket["videos"].add(row["video_id"])
                 bucket["channels"].add(row["channel_id"])
-                analysis = latest_analysis_by_video.get(row["video_id"])
-                if analysis and analysis["opportunity"] is not None:
+                if row["opportunity"] is not None:
                     bucket["opportunityByVideo"][row["video_id"]] = int(
-                        analysis["opportunity"]
+                        row["opportunity"]
                     )
 
         title_signals = []
@@ -890,6 +892,7 @@ class SnapshotStore:
                 **self.stats(),
                 "analyzedCandidates": len(latest_analyses),
                 "growthPairs": len(growth_rows),
+                "creativePatternCandidates": len(latest_analyses),
             },
             "topics": topic_patterns[:10],
             "contentTypes": content_patterns,
@@ -901,7 +904,7 @@ class SnapshotStore:
             )[:8],
             "notes": {
                 "topicPatterns": "Based on real Discover searches stored after Milestone 5.",
-                "titleSignals": "Phrase-first, SEO-cleaned literal title signals repeated across at least two different channels; generic words, location noise, and known filler bigrams are suppressed; obvious phrase-order variants are normalized; no AI labeling.",
+                "titleSignals": "Phrase-first, SEO-cleaned literal title signals from analyzed Discover candidates only; baseline-only channel-history uploads are excluded; signals must repeat across at least two different channels; no AI labeling.",
                 "growthPatterns": "Uses only videos with at least two stored snapshots.",
             },
         }

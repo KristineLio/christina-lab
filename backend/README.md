@@ -391,3 +391,39 @@ Examples:
 - useful phrases such as `price action`, `trading setup`, `day trading`, `copy trading`, and `trading journal` remain eligible
 
 The goal is to stop hand-tuning after obvious cleanup and let broader datasets from different search topics determine what patterns are actually useful.
+
+
+## Milestone 5.1.3 — Candidate-scoped creative patterns
+
+Creative/title pattern discovery now uses **only analyzed Discover candidates**.
+
+Christina Lab intentionally stores two different kinds of videos:
+
+1. **Discover candidates** — videos returned by the user's actual search and scored for opportunity.
+2. **Channel-history videos** — recent uploads fetched only to build baselines and snapshot history.
+
+Before this fix, Repeated Title Signals read from both groups. That allowed unrelated history titles from a candidate's channel to leak into creative pattern discovery.
+
+Now:
+
+```
+all observed videos
+    ├─ baseline / snapshot / growth intelligence
+    └─ NOT automatically creative-pattern evidence
+
+analyzed Discover candidates
+    └─ Search Topic Signals
+    └─ Repeated Title Signals
+    └─ Opportunity-linked creative patterns
+```
+
+This means phrases such as `ganpati bappa` or unrelated channel-history topics cannot surface merely because Christina Lab fetched those videos for baseline calculations.
+
+Repeated Title Signals still require:
+
+- at least two different channels
+- the existing SEO/common-word/location cleanup
+- phrase-first ranking
+- deterministic normalization
+
+Every surfaced title signal is now tied to analyzed candidates and therefore has Opportunity Score context.

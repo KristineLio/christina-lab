@@ -32,6 +32,33 @@ def _video(
     }
 
 
+def _record_candidate_analyses(
+    store: SnapshotStore,
+    video_ids: list[str],
+    observed: datetime,
+    *,
+    topic: str = "test topic",
+) -> None:
+    store.record_analyses(
+        [
+            {
+                "id": video_id,
+                "opportunity": 50 + index,
+                "outlier": 2.0 + index / 10,
+                "baseline": 500,
+                "baselineMethod": "median-age-adjusted-velocity",
+                "baselineSampleSize": 6,
+                "viewsDay": 10_000 + index * 100,
+                "engagement": 5.0,
+                "viewsSub": 0.5,
+            }
+            for index, video_id in enumerate(video_ids, start=1)
+        ],
+        topic=topic,
+        observed_at=observed,
+    )
+
+
 def test_snapshot_store_records_growth_over_time(tmp_path):
     db = tmp_path / "christina_lab.sqlite3"
     store = SnapshotStore(f"sqlite:///{db}")
@@ -327,6 +354,10 @@ def test_title_signals_remove_seo_noise_and_require_multiple_channels(tmp_path):
             min_interval_minutes=0,
         )
 
+    _record_candidate_analyses(
+        store, [video_id for video_id, _, _ in rows], observed, topic="copy trading"
+    )
+
     patterns = store.patterns_summary()
     terms = {signal["term"]: signal for signal in patterns["titleSignals"]}
 
@@ -404,6 +435,10 @@ def test_title_signal_specificity_filters_common_words_and_locations(tmp_path):
             min_interval_minutes=0,
         )
 
+    _record_candidate_analyses(
+        store, [video_id for video_id, _, _ in rows], observed, topic="trading ideas"
+    )
+
     patterns = store.patterns_summary()
     terms = {signal["term"]: signal for signal in patterns["titleSignals"]}
 
@@ -457,6 +492,10 @@ def test_title_signal_ranking_prefers_phrases_over_single_words(tmp_path):
             min_interval_minutes=0,
         )
 
+    _record_candidate_analyses(
+        store, [video_id for video_id, _, _ in rows], observed, topic="beginner trading"
+    )
+
     signals = store.patterns_summary()["titleSignals"]
     phrase_index = next(
         index for index, signal in enumerate(signals)
@@ -498,6 +537,10 @@ def test_title_phrase_cleanup_normalizes_word_order_variants(tmp_path):
             min_interval_minutes=0,
         )
 
+    _record_candidate_analyses(
+        store, [video_id for video_id, _, _ in rows], observed, topic="forex trading"
+    )
+
     patterns = store.patterns_summary()
     terms = {signal["term"]: signal for signal in patterns["titleSignals"]}
 
@@ -538,6 +581,10 @@ def test_title_phrase_cleanup_suppresses_known_filler_bigrams(tmp_path):
             min_interval_minutes=0,
         )
 
+    _record_candidate_analyses(
+        store, [video_id for video_id, _, _ in rows], observed, topic="price action"
+    )
+
     patterns = store.patterns_summary()
     terms = {signal["term"] for signal in patterns["titleSignals"]}
 
@@ -556,3 +603,58 @@ def test_title_phrase_cleanup_suppresses_known_filler_bigrams(tmp_path):
         "like",
     ]:
         assert filler not in terms
+
+
+
+def test_title_signals_exclude_baseline_only_channel_history(tmp_path):
+    db = tmp_path / "christina_lab.sqlite3"
+    store = SnapshotStore(f"sqlite:///{db}")
+    observed = datetime(2026, 9, 19, 12, 0, tzinfo=timezone.utc)
+
+    candidates = [
+        ("candidate-1", "channel-a", "Copy Trading Journal Mistakes"),
+        ("candidate-2", "channel-b", "Copy Trading Journal Setup"),
+    ]
+    baseline_only = [
+        ("history-1", "channel-a", "Ganpati Bappa Celebration"),
+        ("history-2", "channel-b", "Ganpati Bappa Festival"),
+        ("history-3", "channel-c", "Ganpati Bappa Motivation"),
+    ]
+
+    for video_id, channel_id, title in candidates + baseline_only:
+        store.record_snapshots(
+            [
+                _video(
+                    video_id=video_id,
+                    channel_id=channel_id,
+                    title=title,
+                    published_at=observed - timedelta(hours=6),
+                    content_type="Long-form",
+                    views=1000,
+                )
+            ],
+            observed_at=observed,
+            min_interval_minutes=0,
+        )
+
+    # Only Discover candidates receive analysis rows. The history videos exist
+    # solely because Christina Lab fetched them to build channel baselines.
+    _record_candidate_analyses(
+        store,
+        [video_id for video_id, _, _ in candidates],
+        observed,
+        topic="copy trading",
+    )
+
+    patterns = store.patterns_summary()
+    terms = {signal["term"]: signal for signal in patterns["titleSignals"]}
+
+    assert patterns["dataset"]["videosTracked"] == 5
+    assert patterns["dataset"]["analyzedCandidates"] == 2
+    assert patterns["dataset"]["creativePatternCandidates"] == 2
+    assert "copy trading" in terms
+    assert terms["copy trading"]["opportunitySampleSize"] == 2
+
+    # These repeat across multiple baseline/history videos but must never become
+    # a creative pattern because they were not Discover candidates.
+    assert "ganpati bappa" not in terms

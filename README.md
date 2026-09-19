@@ -59,7 +59,7 @@ The VibeFlow frontend and final light analytics theme are merged into `main` and
 - actual measured growth leaders from 2+ snapshots
 - real content-type dataset mix
 - real Patterns page using persisted search topics, repeated title language, content cohorts, and measured growth
-- Pattern Quality Pass: SEO/noise-cleaned title signals, useful hashtag compound normalization, cross-channel repetition requirements, phrase-first ranking, and stricter common-word/location filtering
+- Pattern Quality Pass: SEO/noise-cleaned title signals, useful hashtag compound normalization, cross-channel repetition requirements, phrase-first ranking, stricter common-word/location filtering, and candidate-only creative pattern discovery
 - growth distributions with median, top quartile, measured-history count, and positive-growth share
 - clearer dataset labels distinguishing all observed videos from analyzed Discover candidates
 - empty/pending states when the dataset is too small instead of fabricated pattern conclusions
