@@ -41,7 +41,7 @@ The VibeFlow frontend and final light analytics theme are merged into `main` and
 - age-adjusted median channel velocity baseline from up to 12 usable comparison videos
 - expected views at the candidate's current age
 - real age-adjusted outlier multiplier
-- explainable Opportunity Score v1.1 (0–100)
+- explainable Opportunity Score v1.2 (0–100)
 - score breakdown across outlier, velocity, engagement, views/subscriber, freshness, and baseline confidence
 - guardrails for tiny channels, missing baselines, live content, and upcoming content
 - gradual traction-confidence weighting instead of hard view-count score cliffs
@@ -59,6 +59,9 @@ The VibeFlow frontend and final light analytics theme are merged into `main` and
 - actual measured growth leaders from 2+ snapshots
 - real content-type dataset mix
 - real Patterns page using persisted search topics, repeated title language, content cohorts, and measured growth
+- Pattern Quality Pass: SEO/noise-cleaned title signals, useful hashtag compound normalization, and cross-channel repetition requirements
+- growth distributions with median, top quartile, measured-history count, and positive-growth share
+- clearer dataset labels distinguishing all observed videos from analyzed Discover candidates
 - empty/pending states when the dataset is too small instead of fabricated pattern conclusions
 
 **Next backend milestone:**
