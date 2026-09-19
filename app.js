@@ -19,7 +19,7 @@
       ? "http://127.0.0.1:8000"
       : "");
 
-  const LIVE_SESSION_KEY = "christinaLab.liveResearch.v1";
+  const LIVE_SESSION_KEY = "christinaLab.liveResearch.v2";
 
   function readLiveSession() {
     try {
