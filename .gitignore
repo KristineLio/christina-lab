@@ -1,0 +1,81 @@
+# ==============================
+# Christina Lab
+# ==============================
+
+# Secrets / environment variables
+.env
+.env.local
+.env.development
+.env.production
+.env.test
+.env.*
+!.env.example
+
+# API keys / credentials
+*.key
+*.pem
+*.p12
+*.pfx
+credentials.json
+secrets.json
+service-account.json
+
+# Node / React frontend
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+dist/
+build/
+.next/
+.vite/
+.cache/
+
+# Python backend
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+env/
+ENV/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# Local databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+logs/
+
+# IDE / editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Operating system files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.bak
+
+# Coverage / testing output
+coverage/
+.coverage
+htmlcov/
+
+# Deployment / local config
+.vercel/
+.netlify/
