@@ -6,14 +6,14 @@
  */
 
 :root {
-  --bg: #eef2f7;
-  --bg2: #f8fafc;
-  --surf: #ffffff;
-  --surf2: #f3f6fa;
-  --line: #d7dee8;
+  --bg: #eaf1fb;
+  --bg2: #f3f7fd;
+  --surf: #f9fbff;
+  --surf2: #edf4ff;
+  --line: #cbd9eb;
   --text: #182230;
-  --muted: #5e6b7a;
-  --dim: #7d8998;
+  --muted: #586b84;
+  --dim: #7589a3;
   --accent: #316fe8;
   --cyan: #3a7f91;
   --go: #16865c;
@@ -203,7 +203,7 @@ body {
 }
 
 .top {
-  background: rgba(238,242,247,.94);
+  background: rgba(234,241,251,.94);
   backdrop-filter: blur(10px);
 }
 
@@ -212,14 +212,14 @@ body {
 }
 
 .nav a:hover {
-  background: #eef3f8;
+  background: #e8f1fb;
   color: var(--text);
 }
 
 .nav a.active {
-  background: #e4edf9;
+  background: #dceaff;
   color: #173b72;
-  border: 1px solid #c8d8ee;
+  border: 1px solid #b8cdea;
 }
 
 .nav-sec,
@@ -240,7 +240,7 @@ body {
 
 .pipe .col,
 .icard {
-  background: #f7f9fc;
+  background: #f2f7fd;
 }
 
 .search-mini,
@@ -251,9 +251,9 @@ body {
 .form textarea,
 .form select,
 .palette input {
-  background: #ffffff;
+  background: #fdfefe;
   color: var(--text);
-  border-color: #cfd8e4;
+  border-color: #bfd0e5;
 }
 
 .search-mini::placeholder,
@@ -265,14 +265,14 @@ body {
 }
 
 .btn {
-  background: #f7f9fc;
+  background: #f1f6fc;
   color: #253141;
   border-color: #cfd8e4;
 }
 
 .btn:hover {
-  background: #edf3fa;
-  border-color: #afbdce;
+  background: #e6f0fb;
+  border-color: #9eb4cf;
 }
 
 .btn.primary {
@@ -286,7 +286,7 @@ body {
 }
 
 .badge {
-  background: #f8fafc;
+  background: #f3f8fe;
   border-color: #d6dee9;
   color: #5b6878;
 }
@@ -333,17 +333,17 @@ body {
 
 .thumb,
 .video-head img {
-  background: #dfe6ef;
+  background: #d8e5f5;
 }
 
 .avatar {
-  background: #dbe5f2;
+  background: #d5e4f6;
 }
 
 .modal,
 .palette,
 .toast {
-  background: #ffffff;
+  background: #fbfdff;
   color: var(--text);
 }
 
@@ -355,12 +355,12 @@ body {
 .opp:hover,
 .rank:hover,
 .table tbody tr:hover {
-  background: #f8fafc;
+  background: #f3f8fe;
 }
 
 .tabs button.active {
-  background: #e4edf9;
-  border-color: #c8d8ee;
+  background: #dceaff;
+  border-color: #b8cdea;
   color: #173b72;
 }
 
