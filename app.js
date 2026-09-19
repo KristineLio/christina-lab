@@ -1511,19 +1511,81 @@
       };
     });
     document.getElementById("newIdea")?.addEventListener("click", () => openIdeaModal(null));
-    document.querySelectorAll(".dec").forEach((s) => {
-      s.onchange = () => {
-        const ex = state.experiments.find((e) => e.id === s.dataset.exp);
-        if (ex) ex.decision = s.value;
-        toast("Decision changed to " + s.value);
-        render();
+    document.getElementById("newExperiment")?.addEventListener("click", () => openExperimentModal(null));
+    document.querySelectorAll("[data-create-exp]").forEach((button) => {
+      button.onclick = () => {
+        const idea = state.ideas.find((item) => String(item.id) === String(button.dataset.createExp));
+        if (idea) openExperimentModal(idea);
       };
     });
-    document.getElementById("noteForm")?.addEventListener("submit", (e) => {
+    document.querySelectorAll(".dec").forEach((s) => {
+      s.onchange = async () => {
+        const experimentId = Number(s.dataset.exp);
+        try {
+          await apiJson("/api/experiments/" + experimentId, {
+            method: "PATCH",
+            body: { decision: s.value },
+          });
+          state.workflowLoaded = false;
+          await loadWorkflowData(true);
+          toast("Decision changed to " + (s.value === "UNDECIDED" ? "Undecided" : s.value));
+        } catch (error) {
+          toast(error?.message || "Could not update decision");
+        }
+      };
+    });
+    document.getElementById("noteForm")?.addEventListener("submit", async (e) => {
       e.preventDefault();
-      const f = new FormData(e.target);
-      state.notes[e.target.dataset.vid] = { why: f.get("why"), adapt: f.get("adapt"), angle: f.get("angle") };
-      toast("Note saved");
+      const form = e.target;
+      const f = new FormData(form);
+      const notes = { why: f.get("why"), adapt: f.get("adapt"), angle: f.get("angle") };
+      try {
+        const item = await apiJson("/api/research/" + encodeURIComponent(form.dataset.vid), {
+          method: "PUT",
+          body: notes,
+        });
+        state.notes[form.dataset.vid] = notes;
+        state.saved.add(form.dataset.vid);
+        const index = state.savedResearch.findIndex((row) => (row.videoId || row.id) === form.dataset.vid);
+        if (index >= 0) state.savedResearch[index] = item;
+        else state.savedResearch.unshift(item);
+        toast("Research notes saved");
+        render();
+      } catch (error) {
+        toast(error?.message || "Could not save research notes");
+      }
+    });
+    document.getElementById("experimentResultForm")?.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const form = e.target;
+      const f = new FormData(form);
+      const numberOrNull = (name) => {
+        const raw = String(f.get(name) ?? "").trim();
+        return raw === "" ? null : Number(raw);
+      };
+      try {
+        await apiJson("/api/experiments/" + Number(form.dataset.exp), {
+          method: "PATCH",
+          body: {
+            status: f.get("status"),
+            publishedAt: String(f.get("publishedAt") || "").trim() || null,
+            v24: numberOrNull("v24"),
+            v7: numberOrNull("v7"),
+            retention: numberOrNull("retention"),
+            subs: numberOrNull("subs"),
+            ctr: numberOrNull("ctr"),
+            result: f.get("result"),
+            lesson: f.get("lesson"),
+            next: f.get("next"),
+            decision: f.get("decision"),
+          },
+        });
+        state.workflowLoaded = false;
+        await loadWorkflowData(true);
+        toast("Experiment result saved");
+      } catch (error) {
+        toast(error?.message || "Could not save experiment result");
+      }
     });
     document.getElementById("yt1")?.addEventListener("click", () => {
       state.connected = !state.connected;
@@ -1541,13 +1603,27 @@
     });
     document.querySelectorAll(".kcol").forEach((col) => {
       col.ondragover = (e) => e.preventDefault();
-      col.ondrop = (e) => {
+      col.ondrop = async (e) => {
         e.preventDefault();
-        const id = e.dataTransfer.getData("id");
-        const idea = state.ideas.find((i) => i.id === id);
-        if (idea) idea.status = col.dataset.col;
-        toast("Idea moved to " + col.dataset.col);
+        const id = Number(e.dataTransfer.getData("id"));
+        const idea = state.ideas.find((item) => Number(item.id) === id);
+        if (!idea || idea.status === col.dataset.col) return;
+        const previous = idea.status;
+        idea.status = col.dataset.col;
         render();
+        try {
+          await apiJson("/api/ideas/" + id, {
+            method: "PATCH",
+            body: { status: col.dataset.col },
+          });
+          state.workflowLoaded = false;
+          await loadWorkflowData(true);
+          toast("Idea moved to " + col.dataset.col);
+        } catch (error) {
+          idea.status = previous;
+          render();
+          toast(error?.message || "Could not move idea");
+        }
       };
     });
     document.getElementById("retry")?.addEventListener("click", () => {
@@ -1560,6 +1636,10 @@
     document.getElementById("retryPatterns")?.addEventListener("click", () => {
       state.patternsData = null;
       loadPatternsData(true);
+    });
+    document.getElementById("retryWorkflow")?.addEventListener("click", () => {
+      state.workflowLoaded = false;
+      loadWorkflowData(true);
     });
   }
 
