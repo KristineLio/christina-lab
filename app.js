@@ -1043,7 +1043,7 @@
       </div>
 
       <div class="card" style="margin-top:12px">
-        <div class="card-h"><h2>Repeated Title Signals</h2><p>Phrase-first title patterns repeated across at least two different channels. Common words, generic category terms, location/SEO noise, and one-channel repetition are filtered out.</p></div>
+        <div class="card-h"><h2>Repeated Title Signals</h2><p>Phrase-first title patterns repeated across at least two different channels. Common words, generic category terms, location/SEO noise, filler bigrams, and one-channel repetition are filtered out; obvious word-order variants are normalized.</p></div>
         ${terms.length
           ? terms.map((row) => `<div class="rank"><span><b>${esc(row.term)}</b> <span class="badge">${row.termType === "phrase" ? "Phrase" : "Specific word"}</span></span><span>${fmt(row.videos)} titles · ${fmt(row.channels)} channels</span><span>${row.opportunitySampleSize ? fmt(row.opportunitySampleSize) + " analyzed" : "no scored samples yet"}</span><span>avg opp ${row.avgOpportunity == null ? "—" : Number(row.avgOpportunity).toFixed(1)}</span></div>`).join("")
           : `<div class="empty"><p>No sufficiently specific cross-channel title pattern has repeated yet.</p></div>`}
