@@ -1,3 +1,15 @@
+/*
+ * CHRISTINA LAB — FRONTEND WORKFLOW / UI CONTROLLER
+ *
+ * This file implements the product workflow and interactive UI:
+ * Dashboard, Discover, Video Analysis, Saved Research, Ideas,
+ * Experiments, My Videos, Patterns, Analytics, Watchlists, and Settings.
+ *
+ * Today it reads demo data from window.CL_DATA (data.js) and keeps most
+ * user changes in browser memory. As the backend is built, these in-memory
+ * operations will be replaced by API calls while preserving the same UI flow.
+ */
+
 (function () {
   const D = window.CL_DATA;
   const $ = (id) => document.getElementById(id);
