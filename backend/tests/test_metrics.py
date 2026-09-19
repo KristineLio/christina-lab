@@ -346,15 +346,17 @@ def test_tiny_channel_breakout_cannot_dominate_on_ratio_alone():
         if component["key"] == "audience"
     )
     assert audience["score"] <= 4
-    assert result["opportunity"] <= 40
+    assert result["opportunity"] < result["opportunityRaw"]
     assert any(
         guardrail["key"] == "tiny-channel-ratio"
         for guardrail in result["opportunityGuardrails"]
     )
-    assert any(
-        guardrail["key"] == "low-traction"
+    traction = next(
+        guardrail
         for guardrail in result["opportunityGuardrails"]
+        if guardrail["key"] == "traction-confidence"
     )
+    assert 0.70 < traction["value"] < 0.75
 
 
 def test_missing_baseline_caps_opportunity():
@@ -408,4 +410,67 @@ def test_live_content_gets_velocity_guardrail_penalty():
     assert any(
         guardrail["key"] == "live-content"
         for guardrail in live["opportunityGuardrails"]
+    )
+
+
+
+def test_views_subscriber_keeps_precision_for_large_channels():
+    now = datetime(2026, 9, 19, 12, 0, tzinfo=timezone.utc)
+    result = calculate_video_metrics(
+        views=578,
+        likes=50,
+        comments=8,
+        subscribers=222_000,
+        published_at=now - timedelta(hours=7),
+        now=now,
+    )
+
+    assert result["viewsSub"] == 0.002604
+
+    opportunity = calculate_opportunity_score(
+        views=578,
+        subscribers=222_000,
+        views_day=result["viewsDay"],
+        engagement=result["engagement"],
+        views_sub=result["viewsSub"],
+        age_hours_value=result["ageHours"],
+        outlier=3.4,
+        baseline_sample_size=12,
+        baseline_scope="same-format",
+        live_broadcast_content="none",
+    )
+    audience = next(
+        component
+        for component in opportunity["opportunityComponents"]
+        if component["key"] == "audience"
+    )
+    assert "0.003×" in audience["label"]
+    assert "0.26%" in audience["label"]
+
+
+def test_traction_confidence_has_no_999_to_1000_view_cliff():
+    common = dict(
+        subscribers=20_000,
+        views_day=30_000,
+        engagement=6.0,
+        views_sub=0.05,
+        age_hours_value=8,
+        outlier=4.0,
+        baseline_sample_size=9,
+        baseline_scope="same-format",
+        live_broadcast_content="none",
+    )
+    just_below = calculate_opportunity_score(views=999, **common)
+    at_threshold = calculate_opportunity_score(views=1000, **common)
+
+    assert abs(at_threshold["opportunity"] - just_below["opportunity"]) <= 1
+    traction = next(
+        guardrail
+        for guardrail in just_below["opportunityGuardrails"]
+        if guardrail["key"] == "traction-confidence"
+    )
+    assert traction["value"] > 0.99
+    assert not any(
+        guardrail["key"] == "traction-confidence"
+        for guardrail in at_threshold["opportunityGuardrails"]
     )
