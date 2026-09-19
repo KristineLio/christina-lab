@@ -470,3 +470,85 @@ def test_title_signal_ranking_prefers_phrases_over_single_words(tmp_path):
     assert phrase_index < word_index
     assert signals[phrase_index]["termType"] == "phrase"
     assert signals[word_index]["termType"] == "specific-word"
+
+
+
+def test_title_phrase_cleanup_normalizes_word_order_variants(tmp_path):
+    db = tmp_path / "christina_lab.sqlite3"
+    store = SnapshotStore(f"sqlite:///{db}")
+    observed = datetime(2026, 9, 19, 12, 0, tzinfo=timezone.utc)
+
+    rows = [
+        ("v1", "channel-a", "Trading Forex With a Simple Setup"),
+        ("v2", "channel-b", "Forex Trading Beginner Guide"),
+    ]
+    for video_id, channel_id, title in rows:
+        store.record_snapshots(
+            [
+                _video(
+                    video_id=video_id,
+                    channel_id=channel_id,
+                    title=title,
+                    published_at=observed - timedelta(hours=6),
+                    content_type="Long-form",
+                    views=1000,
+                )
+            ],
+            observed_at=observed,
+            min_interval_minutes=0,
+        )
+
+    patterns = store.patterns_summary()
+    terms = {signal["term"]: signal for signal in patterns["titleSignals"]}
+
+    assert "forex trading" in terms
+    assert terms["forex trading"]["videos"] == 2
+    assert terms["forex trading"]["channels"] == 2
+    assert "trading forex" not in terms
+
+
+def test_title_phrase_cleanup_suppresses_known_filler_bigrams(tmp_path):
+    db = tmp_path / "christina_lab.sqlite3"
+    store = SnapshotStore(f"sqlite:///{db}")
+    observed = datetime(2026, 9, 19, 12, 0, tzinfo=timezone.utc)
+
+    rows = [
+        ("v1", "channel-a", "Price Action Trading Setup"),
+        ("v2", "channel-b", "Price Action Trading Guide"),
+        ("v3", "channel-c", "Trading Motivation for Beginners"),
+        ("v4", "channel-d", "Trading Motivation Daily"),
+        ("v5", "channel-e", "Funny Comedy Trading Story"),
+        ("v6", "channel-f", "Funny Comedy Market Story"),
+        ("v7", "channel-g", "Trading Like a Professional"),
+        ("v8", "channel-h", "Trading Like an Expert"),
+    ]
+    for video_id, channel_id, title in rows:
+        store.record_snapshots(
+            [
+                _video(
+                    video_id=video_id,
+                    channel_id=channel_id,
+                    title=title,
+                    published_at=observed - timedelta(hours=6),
+                    content_type="Long-form",
+                    views=1000,
+                )
+            ],
+            observed_at=observed,
+            min_interval_minutes=0,
+        )
+
+    patterns = store.patterns_summary()
+    terms = {signal["term"] for signal in patterns["titleSignals"]}
+
+    assert "price action" in terms
+    assert "trading setup" not in terms  # appears on only one channel here
+
+    for filler in [
+        "action trading",
+        "trading motivation",
+        "motivation trading",
+        "funny comedy",
+        "trading like",
+    ]:
+        assert filler not in terms
