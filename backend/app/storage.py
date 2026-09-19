@@ -56,6 +56,21 @@ _TITLE_NORMALIZATIONS = {
     "tradingjournal": ("trading", "journal"),
 }
 
+# Deterministic phrase cleanup only. These are not AI interpretations:
+# they normalize obvious word-order variants and remove filler bigrams that
+# repeatedly appear because of surrounding sentence structure.
+_TITLE_PHRASE_CANONICAL = {
+    "trading forex": "forex trading",
+}
+
+_TITLE_PHRASE_BLOCKLIST = {
+    "action trading",
+    "funny comedy",
+    "motivation trading",
+    "trading like",
+    "trading motivation",
+}
+
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
@@ -133,7 +148,12 @@ def _title_terms(title: str) -> set[str]:
         # "copy trading", "trading journal", "gold strategy", and "trading setup".
         if first in _TITLE_BROAD_CATEGORY_TERMS and second in _TITLE_BROAD_CATEGORY_TERMS:
             continue
-        terms.add(f"{first} {second}")
+
+        phrase = f"{first} {second}"
+        phrase = _TITLE_PHRASE_CANONICAL.get(phrase, phrase)
+        if phrase in _TITLE_PHRASE_BLOCKLIST:
+            continue
+        terms.add(phrase)
 
     return terms
 
@@ -880,7 +900,7 @@ class SnapshotStore:
             )[:8],
             "notes": {
                 "topicPatterns": "Based on real Discover searches stored after Milestone 5.",
-                "titleSignals": "Phrase-first, SEO-cleaned literal title signals repeated across at least two different channels; generic words and location noise are suppressed; no AI labeling.",
+                "titleSignals": "Phrase-first, SEO-cleaned literal title signals repeated across at least two different channels; generic words, location noise, and known filler bigrams are suppressed; obvious phrase-order variants are normalized; no AI labeling.",
                 "growthPatterns": "Uses only videos with at least two stored snapshots.",
             },
         }
