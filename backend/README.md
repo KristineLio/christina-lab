@@ -286,3 +286,67 @@ If the dataset is too small for a pattern, the API returns an empty collection a
 Milestone 5 automatically upgrades an existing Milestone 4 SQLite database by adding display metadata columns and the `video_analyses` table. Existing snapshots are preserved.
 
 Historical searches from before Milestone 5 did not store derived Opportunity analysis rows, so the Dashboard's Opportunity and search-topic sections begin filling after the next fresh Discover searches.
+
+
+## Milestone 5.1 — Pattern Quality Pass
+
+Patterns now favor useful, cross-channel evidence instead of raw keyword frequency.
+
+### Cleaner title signals
+
+The title extractor now:
+
+- strips common YouTube/SEO noise such as `#viral`, `#trending`, `#shortsfeed`, `#ytshorts`, `#explore`, and similar platform tags
+- filters broad one-word category terms such as `trading`, `trader`, `trade`, `crypto`, and `bitcoin`
+- still allows those broad words inside useful phrases such as `copy trading` and `trading journal`
+- normalizes useful concatenated hashtag/title compounds such as:
+  - `copytrading` → `copy trading`
+  - `tradingjournal` → `trading journal`
+  - `aitools` → `ai tools`
+  - `daytrading` → `day trading`
+- keeps short meaningful tokens such as `AI`
+- requires a title signal to appear across at least **two different channels**, not merely two videos from one prolific channel
+
+Returned title signals now include:
+
+- number of matching videos
+- number of independent channels
+- number of matching videos with an Opportunity Score
+- average Opportunity Score when available
+
+### Better growth distributions
+
+Content-type patterns no longer show a lone `0/h actual` value with no context.
+
+Each Short / Long-form / Livestream cohort now returns:
+
+- total observed videos
+- measured growth-history count
+- median actual views/hour
+- 75th percentile (top-quartile threshold) actual views/hour
+- count of histories with positive growth
+- positive-growth share
+
+This makes a cohort with many flat observations understandable. For example:
+
+```
+Short
+736 observed videos
+318 measured growth histories
+median actual growth: 0/h
+top quartile: 420/h
+positive growth: 41%
+```
+
+The median can truthfully remain zero without implying that the growth system is broken.
+
+### Clearer dataset language
+
+The UI now distinguishes:
+
+- **Public Videos Observed** — candidates plus channel-history videos collected for baselines
+- **Metric Snapshots** — timestamped public observations
+- **Measured Growth Histories** — videos with at least two snapshots
+- **Analyzed Search Results** — Discover candidates with persisted derived scores
+
+Search Topic Signals also explicitly encourages multiple distinct Discover queries because cross-topic comparisons are not meaningful when only one search topic has been persisted.
