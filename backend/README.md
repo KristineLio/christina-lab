@@ -427,3 +427,183 @@ Repeated Title Signals still require:
 - deterministic normalization
 
 Every surfaced title signal is now tied to analyzed candidates and therefore has Opportunity Score context.
+
+
+## Milestone 6 — persisted creator decision loop
+
+Christina Lab now persists the complete research-to-experiment workflow instead of keeping Saved Research, Ideas, and Experiments in frontend memory.
+
+### Product loop
+
+```
+Discover real opportunity
+        ↓
+Save Research
+        ↓
+write:
+Why did I save this?
+How could I adapt it?
+What unique angle could I add?
+        ↓
+Turn into Idea
+        ↓
+Draft → Ready → Published
+        ↓
+Create Experiment
+        ↓
+record actual result
+        ↓
+GO / TEST / HOLD
+        ↓
+creator-specific learning evidence
+```
+
+### New SQLite tables
+
+```
+saved_research
+ideas
+experiments
+```
+
+These tables are created automatically on the existing local SQLite database. Existing video snapshots, analyses, patterns, and historical baselines are preserved.
+
+### Saved Research
+
+Saved research is now durable across refreshes and browser restarts.
+
+Each saved video can store:
+
+- why it was saved
+- how Christina could adapt it without copying
+- a unique angle
+- optional collection name
+- link back to the original persisted YouTube video
+
+The Saved Research screen joins those notes with the latest public metrics and latest Opportunity analysis for that video.
+
+API:
+
+```
+GET    /api/research
+PUT    /api/research/{video_id}
+DELETE /api/research/{video_id}
+```
+
+Saving creator notes through the Analyze screen also saves the research item if it was not already saved.
+
+### Ideas
+
+Ideas are persisted and can optionally reference the research video they came from.
+
+Pipeline:
+
+```
+Draft → Ready → Published
+```
+
+Dragging a card between columns writes the new status to SQLite.
+
+API:
+
+```
+GET   /api/ideas
+POST  /api/ideas
+PATCH /api/ideas/{idea_id}
+```
+
+Creating an idea directly from a Discover/Analyze video automatically ensures that source video is saved as research.
+
+### Experiments
+
+Experiments are created from persisted ideas.
+
+An experiment stores:
+
+- source idea
+- experiment name
+- topic / format inherited from the idea
+- hypothesis
+- Draft / Ready / Published status
+- published date
+- 24h views
+- 7d views
+- retention
+- subscriber gain
+- CTR
+- result summary
+- lesson
+- next test
+- decision
+
+Decision values:
+
+```
+UNDECIDED
+GO
+TEST
+HOLD
+```
+
+`UNDECIDED` exists so Christina Lab does not force a conclusion before actual evidence is recorded.
+
+API:
+
+```
+GET   /api/experiments
+GET   /api/experiments/{experiment_id}
+POST  /api/experiments
+PATCH /api/experiments/{experiment_id}
+```
+
+Marking an experiment Published also promotes its source idea to Published.
+
+### Workflow bundle and creator-specific learning
+
+```
+GET /api/workflow
+```
+
+returns:
+
+- Saved Research
+- Ideas
+- Experiments
+- workflow counts
+- GO / TEST / HOLD / Undecided counts
+- average recorded 24h views
+- average subscriber gain
+- evidence grouped by creator topic
+
+The Experiments page uses this to show **What Christina Lab is learning** from Christina's own tests rather than treating market popularity as creator-specific truth.
+
+Example:
+
+```
+copy trading
+3 experiments
+GO 2 · TEST 1 · HOLD 0
+7.4K avg 24h · +31 subs
+```
+
+This is descriptive evidence from entered experiment results. Christina still chooses the GO / TEST / HOLD decision.
+
+### Frontend persistence behavior
+
+The following screens no longer use the demo fixtures in `data.js`:
+
+- Saved Research
+- Ideas
+- Experiments
+- Experiment detail/results
+- Published creator experiments on My Videos
+
+The frontend loads the creator workflow from FastAPI and updates it through PUT / POST / PATCH / DELETE requests.
+
+CORS now permits those local mutation methods from the local frontend origin.
+
+### Current limitation
+
+Experiment performance is entered manually in Milestone 6. Christina Lab does **not** yet use YouTube Analytics OAuth for the creator's own channel.
+
+That is intentional: the creator-decision loop is now structurally complete before adding automatic owned-channel metric imports.

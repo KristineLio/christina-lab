@@ -5,9 +5,9 @@
  * Dashboard, Discover, Video Analysis, Saved Research, Ideas,
  * Experiments, My Videos, Patterns, Analytics, Watchlists, and Settings.
  *
- * Today it reads demo data from window.CL_DATA (data.js) and keeps most
- * user changes in browser memory. As the backend is built, these in-memory
- * operations will be replaced by API calls while preserving the same UI flow.
+ * Live research, Saved Research, Ideas, Experiments, Dashboard, and Patterns
+ * now use the FastAPI + SQLite backend. Remaining demo-only screens are kept
+ * isolated while later milestones replace them with creator-owned data.
  */
 
 (function () {
@@ -39,10 +39,16 @@
     query: restoredLiveSession?.query || "",
     searched: Boolean(restoredLiveSession?.searched && restoredLiveSession?.videos?.length),
     filters: { time: "7d", type: "All", minViews: 0, sort: "opp", topic: "All" },
-    saved: new Set(D.savedSeed),
-    ideas: D.ideas.map((x) => ({ ...x })),
-    experiments: D.experiments.map((x) => ({ ...x })),
+    saved: new Set(),
+    savedResearch: [],
+    ideas: [],
+    experiments: [],
     notes: {},
+    workflowSummary: null,
+    learningSignals: [],
+    workflowLoading: false,
+    workflowLoaded: false,
+    workflowError: "",
     collections: "All",
     savedView: "grid",
     watchTab: "channels",
@@ -96,7 +102,10 @@
   }
 
   function videoById(id) {
-    return allKnownVideos().find((v) => v.id === id);
+    const live = allKnownVideos().find((v) => v.id === id);
+    if (live) return live;
+    const saved = state.savedResearch.find((v) => (v.videoId || v.id) === id);
+    return saved ? { ...saved, id: saved.videoId || saved.id, source: "saved-research", persistedResearch: true } : null;
   }
 
   function ratioLabel(value) {
@@ -155,17 +164,68 @@
     return Math.round(value / (24 * 30)) + "mo";
   }
 
-  async function fetchJson(path) {
-    const response = await fetch(API_BASE + path);
+  async function apiJson(path, options = {}) {
+    const config = { ...options };
+    if (config.body && typeof config.body !== "string") {
+      config.headers = { "Content-Type": "application/json", ...(config.headers || {}) };
+      config.body = JSON.stringify(config.body);
+    }
+    const response = await fetch(API_BASE + path, config);
     if (!response.ok) {
-      let message = "Christina Lab backend could not load this data.";
+      let message = "Christina Lab backend could not complete this request.";
       try {
         const payload = await response.json();
         if (payload.detail) message = payload.detail;
       } catch (_) {}
       throw new Error(message);
     }
+    if (response.status === 204) return null;
     return response.json();
+  }
+
+  async function fetchJson(path) {
+    return apiJson(path);
+  }
+
+  function workflowRoute(path = state.route) {
+    const clean = String(path || "/").split("?")[0] || "/";
+    return (
+      clean === "/discover" ||
+      clean === "/saved" ||
+      clean === "/ideas" ||
+      clean === "/lab" ||
+      clean === "/videos" ||
+      clean.startsWith("/experiment/") ||
+      clean.startsWith("/video/")
+    );
+  }
+
+  async function loadWorkflowData(force = false) {
+    if (state.workflowLoading || (state.workflowLoaded && !force)) return;
+    state.workflowLoading = true;
+    state.workflowError = "";
+    if (workflowRoute()) render();
+    try {
+      const payload = await fetchJson("/api/workflow");
+      state.savedResearch = Array.isArray(payload.savedResearch) ? payload.savedResearch : [];
+      state.saved = new Set(state.savedResearch.map((item) => item.videoId || item.id));
+      state.ideas = Array.isArray(payload.ideas) ? payload.ideas : [];
+      state.experiments = Array.isArray(payload.experiments) ? payload.experiments : [];
+      state.workflowSummary = payload.summary || null;
+      state.learningSignals = Array.isArray(payload.learningSignals) ? payload.learningSignals : [];
+      state.notes = Object.fromEntries(
+        state.savedResearch.map((item) => [
+          item.videoId || item.id,
+          { why: item.why || "", adapt: item.adapt || "", angle: item.angle || "" },
+        ])
+      );
+      state.workflowLoaded = true;
+    } catch (error) {
+      state.workflowError = error?.message || "Could not load the creator workflow.";
+    } finally {
+      state.workflowLoading = false;
+      if (workflowRoute()) render();
+    }
   }
 
   async function loadDashboardData(force = false) {
@@ -202,6 +262,7 @@
     const clean = String(path || "/").split("?")[0] || "/";
     if (clean === "/") loadDashboardData();
     if (clean === "/patterns") loadPatternsData();
+    if (workflowRoute(clean)) loadWorkflowData();
   }
 
   function navigate(path) {
@@ -260,16 +321,38 @@
     };
   }
 
-  function saveVideo(id) {
-    state.saved.add(id);
-    toast("Saved to Research");
-    render();
+  async function saveVideo(id) {
+    try {
+      const existing = state.notes[id] || { why: "", adapt: "", angle: "" };
+      const item = await apiJson("/api/research/" + encodeURIComponent(id), {
+        method: "PUT",
+        body: existing,
+      });
+      const index = state.savedResearch.findIndex((row) => (row.videoId || row.id) === id);
+      if (index >= 0) state.savedResearch[index] = item;
+      else state.savedResearch.unshift(item);
+      state.saved.add(id);
+      state.notes[id] = { why: item.why || "", adapt: item.adapt || "", angle: item.angle || "" };
+      toast("Saved to Research");
+      render();
+    } catch (error) {
+      toast(error?.message || "Could not save research");
+    }
   }
-  function unsave(id) {
-    state.saved.delete(id);
-    toast("Video removed");
-    render();
+
+  async function unsave(id) {
+    try {
+      await apiJson("/api/research/" + encodeURIComponent(id), { method: "DELETE" });
+      state.saved.delete(id);
+      state.savedResearch = state.savedResearch.filter((row) => (row.videoId || row.id) !== id);
+      delete state.notes[id];
+      toast("Video removed from Saved Research");
+      render();
+    } catch (error) {
+      toast(error?.message || "Could not remove research");
+    }
   }
+
   function ideaFrom(vid) {
     const v = videoById(vid);
     openIdeaModal(v);
@@ -277,22 +360,30 @@
 
   function openIdeaModal(src) {
     const m = $("modal");
+    const sourceNotes = src ? state.notes[src.id] || { why: "", adapt: "", angle: "" } : { why: "", adapt: "", angle: "" };
+    const sourceType = src?.type === "Short" ? "Short" : "Long-form";
     m.hidden = false;
     m.innerHTML = `<div class="modal">
-      <h2 style="margin:0 0 12px;font-size:16px">Create idea</h2>
+      <h2 style="margin:0 0 6px;font-size:16px">Create idea</h2>
+      <p class="meta" style="margin-top:0">${src ? "Source: " + esc(src.title) : "Standalone creator idea"}</p>
       <form class="form" id="ideaForm">
-        <label>Working title <input name="title" required value="${src ? esc("Why " + src.title.replace(/^Why /, "")) : ""}" /></label>
+        <label>Working title <input name="title" required value="${src ? esc(src.title) : ""}" /></label>
         <label>Hook <input name="hook" placeholder="The first line viewers hear" /></label>
-        <label>Topic <input name="topic" value="${src ? esc(src.topic) : ""}" /></label>
-        <label>Content type <select name="type"><option>Short</option><option>Long-form</option></select></label>
-        <label>Angle <input name="angle" /></label>
-        <label>Audience <input name="audience" /></label>
-        <label>Why do you think this video will work?
-          <textarea name="hypothesis" rows="3">Several recent videos using this structure are outperforming channel baselines. I want to test it without copying the original.</textarea>
+        <label>Topic <input name="topic" value="${src ? esc(src.topic || "") : ""}" /></label>
+        <label>Content type
+          <select name="type">
+            <option ${sourceType === "Short" ? "selected" : ""}>Short</option>
+            <option ${sourceType === "Long-form" ? "selected" : ""}>Long-form</option>
+          </select>
         </label>
-        <label>Notes <textarea name="notes" rows="2"></textarea></label>
-        <label>Priority <select name="priority"><option>High</option><option>Med</option><option>Low</option></select></label>
-        <label>Status <select name="status"><option>Inbox</option><option>Researching</option><option>Ready</option></select></label>
+        <label>Angle <input name="angle" value="${esc(sourceNotes.angle || "")}" placeholder="Your differentiated angle" /></label>
+        <label>Audience <input name="audience" /></label>
+        <label>Hypothesis
+          <textarea name="hypothesis" rows="3">${esc(sourceNotes.adapt || "What exactly do you expect this idea to prove?")}</textarea>
+        </label>
+        <label>Notes <textarea name="notes" rows="2">${esc(sourceNotes.why || "")}</textarea></label>
+        <label>Priority <select name="priority"><option>High</option><option selected>Med</option><option>Low</option></select></label>
+        <label>Status <select name="status"><option>Draft</option><option>Ready</option><option>Published</option></select></label>
         <div class="actions"><button class="btn ghost" type="button" id="cancelM">Cancel</button><button class="btn primary" type="submit">Create idea</button></div>
       </form>
     </div>`;
@@ -300,26 +391,106 @@
     m.onclick = (e) => {
       if (e.target === m) m.hidden = true;
     };
-    $("ideaForm").onsubmit = (e) => {
+    $("ideaForm").onsubmit = async (e) => {
       e.preventDefault();
+      const submit = e.submitter;
+      if (submit) submit.disabled = true;
       const f = new FormData(e.target);
-      state.ideas.unshift({
-        id: "idea-" + Date.now(),
-        title: f.get("title"),
-        hook: f.get("hook"),
-        topic: f.get("topic"),
-        type: f.get("type"),
-        sources: src ? 1 : 0,
-        priority: f.get("priority"),
-        created: "Today",
-        status: f.get("status"),
-        hypothesis: f.get("hypothesis"),
-        angle: f.get("angle"),
-        audience: f.get("audience"),
-      });
-      m.hidden = true;
-      toast("Idea created");
+      try {
+        if (src && !state.saved.has(src.id)) {
+          await apiJson("/api/research/" + encodeURIComponent(src.id), {
+            method: "PUT",
+            body: sourceNotes,
+          });
+        }
+        await apiJson("/api/ideas", {
+          method: "POST",
+          body: {
+            sourceVideoId: src?.id || null,
+            title: f.get("title"),
+            hook: f.get("hook"),
+            topic: f.get("topic"),
+            contentType: f.get("type"),
+            angle: f.get("angle"),
+            audience: f.get("audience"),
+            hypothesis: f.get("hypothesis"),
+            notes: f.get("notes"),
+            priority: f.get("priority"),
+            status: f.get("status"),
+          },
+        });
+        m.hidden = true;
+        state.workflowLoaded = false;
+        await loadWorkflowData(true);
+        toast("Idea created and persisted");
+        navigate("/ideas");
+      } catch (error) {
+        toast(error?.message || "Could not create idea");
+        if (submit) submit.disabled = false;
+      }
+    };
+  }
+
+  function openExperimentModal(idea = null) {
+    if (!state.ideas.length) {
+      toast("Create an idea first");
       navigate("/ideas");
+      return;
+    }
+    const selected = idea || state.ideas[0];
+    const m = $("modal");
+    m.hidden = false;
+    m.innerHTML = `<div class="modal">
+      <h2 style="margin:0 0 6px;font-size:16px">Create experiment</h2>
+      <p class="meta" style="margin-top:0">Turn an idea into a measurable test. Results and decisions stay editable after publishing.</p>
+      <form class="form" id="experimentForm">
+        <label>Idea
+          <select name="ideaId" id="experimentIdea">
+            ${state.ideas.map((item) => `<option value="${item.id}" ${String(item.id) === String(selected.id) ? "selected" : ""}>${esc(item.title)}</option>`).join("")}
+          </select>
+        </label>
+        <label>Experiment name <input name="name" required value="${esc(selected.title)}" /></label>
+        <label>Hypothesis <textarea name="hypothesis" rows="3">${esc(selected.hypothesis || "")}</textarea></label>
+        <label>Status <select name="status"><option>Draft</option><option>Ready</option><option>Published</option></select></label>
+        <div class="actions"><button class="btn ghost" type="button" id="cancelM">Cancel</button><button class="btn primary" type="submit">Create experiment</button></div>
+      </form>
+    </div>`;
+    $("cancelM").onclick = () => (m.hidden = true);
+    m.onclick = (e) => {
+      if (e.target === m) m.hidden = true;
+    };
+    $("experimentIdea").onchange = (e) => {
+      const nextIdea = state.ideas.find((item) => String(item.id) === String(e.target.value));
+      if (!nextIdea) return;
+      const form = $("experimentForm");
+      form.name.value = nextIdea.title;
+      form.hypothesis.value = nextIdea.hypothesis || "";
+    };
+    $("experimentForm").onsubmit = async (e) => {
+      e.preventDefault();
+      const submit = e.submitter;
+      if (submit) submit.disabled = true;
+      const f = new FormData(e.target);
+      try {
+        const experiment = await apiJson("/api/experiments", {
+          method: "POST",
+          body: {
+            ideaId: Number(f.get("ideaId")),
+            name: f.get("name"),
+            hypothesis: f.get("hypothesis"),
+            status: f.get("status"),
+            decision: "UNDECIDED",
+          },
+        });
+        m.hidden = true;
+        state.workflowLoaded = false;
+        await loadWorkflowData(true);
+        toast("Experiment created");
+        navigate("/experiment/" + experiment.id);
+      } catch (error) {
+        toast(error?.message || "Could not create experiment");
+        if (submit) submit.disabled = false;
+      }
     };
   }
 
@@ -665,7 +836,7 @@
         ${videoImg(v, "thumb")}
         <div>
           <div class="t" style="font-size:18px">${esc(v.title)}</div>
-          <div class="meta">${esc(v.channel)} · ${esc(v.published)} · ${esc(v.duration)} · ${esc(v.type)}${v.liveStatus && v.liveStatus !== "none" ? " · " + esc(v.liveStatus) : ""}</div>
+          <div class="meta">${[v.channel, v.published, v.duration, v.type, v.liveStatus && v.liveStatus !== "none" ? v.liveStatus : ""].filter(Boolean).map(esc).join(" · ")}</div>
           <div class="actions" style="margin-top:12px">
             <a class="btn" href="${esc(v.youtubeUrl)}" target="_blank" rel="noreferrer">Open on YouTube</a>
             <button class="btn" data-act="${state.saved.has(v.id) ? "unsave" : "save"}" data-id="${esc(v.id)}">${state.saved.has(v.id) ? "Saved" : "Save Research"}</button>
@@ -766,7 +937,7 @@
     }
     const related = allKnownVideos().filter((x) => x.topic === v.topic && x.id !== v.id).slice(0, 4);
     const n = state.notes[v.id] || { why: "", adapt: "", angle: "" };
-    if (v.source === "youtube") return liveAnalysis(v, related, n);
+    if (v.source === "youtube" || v.persistedResearch) return liveAnalysis(v, related, n);
     return `
       <div class="video-head">
         ${img(v.thumbAlt, "thumb")}
@@ -843,156 +1014,209 @@
     </svg>`;
   }
 
+  function workflowGate() {
+    if (state.workflowLoading && !state.workflowLoaded) {
+      return `<div class="card" style="padding:16px"><div class="skel"></div><div class="skel"></div><div class="skel"></div></div>`;
+    }
+    if (state.workflowError && !state.workflowLoaded) {
+      return `<div class="empty"><h3>Couldn't load the creator workflow</h3><p>${esc(state.workflowError)}</p><button class="btn primary" id="retryWorkflow">Retry</button></div>`;
+    }
+    return "";
+  }
+
   function saved() {
-    const items = allKnownVideos().filter((v) => state.saved.has(v.id));
+    const gate = workflowGate();
+    if (gate) return gate;
+    const items = state.savedResearch.slice();
     return `
-      <p class="sub">Your library of interesting videos, formats, hooks and opportunities.</p>
+      <p class="sub">Persisted research you deliberately chose to keep. Notes survive refreshes and become the source material for ideas.</p>
       <div class="filters">
         <button class="btn ${state.savedView === "grid" ? "primary" : ""}" data-view="grid">Grid</button>
         <button class="btn ${state.savedView === "table" ? "primary" : ""}" data-view="table">Table</button>
-        <select id="scol"><option>All</option><option>Trading Psychology</option><option>RiskDesk Ideas</option><option>Build in Public</option><option>AI Tools</option><option>YouTube Growth</option></select>
+        <span class="meta">${items.length} saved research item${items.length === 1 ? "" : "s"}</span>
       </div>
-      ${
-        items.length === 0
-          ? `<div class="empty"><h3>No saved research yet.</h3><p>Discover interesting videos and save the strongest opportunities here.</p><button class="btn primary" data-go="/discover">Explore Videos</button></div>`
-          : state.savedView === "grid"
-          ? `<div class="grid2">${items
-              .map(
-                (v) => `<div class="card" style="padding:12px">${videoImg(v)}
-                <div class="t" style="margin-top:8px">${v.title}</div>
-                <div class="meta">${v.channel} · ${v.topic} · saved recently</div>
-                <div class="actions" style="margin-top:8px">
-                  <span class="outlier">${v.outlier == null ? "Baseline pending" : v.outlier.toFixed(1) + "×"}</span>
-                  <button class="btn" data-act="analyze" data-id="${v.id}">Open analysis</button>
-                  <button class="btn primary" data-act="idea" data-id="${v.id}">Turn into Idea</button>
-                  <button class="btn ghost" data-act="unsave" data-id="${v.id}">Remove</button>
-                </div></div>`
-              )
-              .join("")}</div>`
-          : `<div class="card"><table class="table"><thead><tr><th>Video</th><th>Outlier</th><th>Views</th><th></th></tr></thead><tbody>
-            ${items
-              .map(
-                (v) => `<tr><td>${v.title}<div class="meta">${v.channel}</div></td><td class="outlier">${v.outlier == null ? "Baseline pending" : v.outlier.toFixed(1) + "×"}</td><td>${fmt(v.views)}</td>
-                <td><button class="btn" data-act="unsave" data-id="${v.id}">Remove</button></td></tr>`
-              )
-              .join("")}</tbody></table></div>`
-      }`;
+      ${items.length === 0
+        ? `<div class="empty"><h3>No saved research yet.</h3><p>Save a real Discover result, write why it matters, then turn it into an idea.</p><button class="btn primary" data-go="/discover">Explore Videos</button></div>`
+        : state.savedView === "grid"
+        ? `<div class="grid2">${items.map((v) => `
+            <div class="card" style="padding:12px">
+              ${videoImg(v)}
+              <div class="t" style="margin-top:8px">${esc(v.title)}</div>
+              <div class="meta">${esc(v.channel)} · ${esc(v.topic || "Unspecified")} · ${esc(v.type)} · ${fmt(v.views)} views</div>
+              <div class="actions" style="margin:8px 0">
+                <span class="num">${v.opportunity == null ? "—" : v.opportunity + "/100"}</span>
+                <span class="outlier">${v.outlier == null ? "Baseline pending" : Number(v.outlier).toFixed(1) + "×"}</span>
+                <span class="badge">${v.ideaCount || 0} idea${Number(v.ideaCount || 0) === 1 ? "" : "s"}</span>
+              </div>
+              <div class="meta"><b>Why:</b> ${esc(v.why || "Not written yet")}</div>
+              <div class="meta" style="margin-top:4px"><b>Adapt:</b> ${esc(v.adapt || "Not written yet")}</div>
+              <div class="meta" style="margin-top:4px"><b>Angle:</b> ${esc(v.angle || "Not written yet")}</div>
+              <div class="actions" style="margin-top:10px">
+                <button class="btn" data-act="analyze" data-id="${esc(v.videoId || v.id)}">Open research</button>
+                <button class="btn primary" data-act="idea" data-id="${esc(v.videoId || v.id)}">Turn into Idea</button>
+                <button class="btn ghost" data-act="unsave" data-id="${esc(v.videoId || v.id)}">Remove</button>
+              </div>
+            </div>`).join("")}</div>`
+        : `<div class="card"><table class="table"><thead><tr><th>Research</th><th>Opp</th><th>Outlier</th><th>Notes</th><th></th></tr></thead><tbody>
+            ${items.map((v) => `<tr>
+              <td><div class="t">${esc(v.title)}</div><div class="meta">${esc(v.channel)} · ${esc(v.topic || "Unspecified")}</div></td>
+              <td class="num">${v.opportunity == null ? "—" : v.opportunity + "/100"}</td>
+              <td class="outlier">${v.outlier == null ? "—" : Number(v.outlier).toFixed(1) + "×"}</td>
+              <td>${[v.why, v.adapt, v.angle].filter(Boolean).length}/3 prompts</td>
+              <td class="actions"><button class="btn primary" data-act="idea" data-id="${esc(v.videoId || v.id)}">Idea</button><button class="btn ghost" data-act="unsave" data-id="${esc(v.videoId || v.id)}">Remove</button></td>
+            </tr>`).join("")}
+          </tbody></table></div>`}
+    `;
   }
 
   function ideas() {
-    const cols = ["Inbox", "Researching", "Ready", "Recorded", "Published", "Analyzing"];
+    const gate = workflowGate();
+    if (gate) return gate;
+    const cols = ["Draft", "Ready", "Published"];
     return `
-      <p class="sub">Turn research findings into a content production pipeline.</p>
-      <div class="actions" style="margin-bottom:12px"><button class="btn primary" id="newIdea">Create idea</button></div>
+      <p class="sub">Persisted idea pipeline: Draft → Ready → Published. Drag cards between stages; every move is saved to SQLite.</p>
+      <div class="actions" style="margin-bottom:12px">
+        <button class="btn primary" id="newIdea">Create idea</button>
+        <span class="meta">${state.ideas.length} persisted idea${state.ideas.length === 1 ? "" : "s"}</span>
+      </div>
+      ${state.ideas.length === 0 ? `<div class="empty"><h3>No ideas yet.</h3><p>Turn a Saved Research item into your first testable content idea.</p><button class="btn primary" data-go="/saved">Open Saved Research</button></div>` : `
       <div class="kanban">
-        ${cols
-          .map((c) => {
-            const cards = state.ideas.filter((i) => i.status === c);
-            return `<div class="kcol" data-col="${c}"><h3>${c} · ${cards.length}</h3>
-              ${cards
-                .map(
-                  (i) => `<div class="icard" draggable="true" data-idea="${i.id}">
-                    <div class="t">${i.title}</div>
-                    <div class="hook">${i.hook}</div>
-                    <div class="meta">${i.topic} · ${i.type} · ${i.sources} sources · ${i.priority}</div>
-                  </div>`
-                )
-                .join("")}
-            </div>`;
-          })
-          .join("")}
-      </div>`;
+        ${cols.map((colName) => {
+          const cards = state.ideas.filter((idea) => idea.status === colName);
+          return `<div class="kcol" data-col="${colName}"><h3>${colName} · ${cards.length}</h3>
+            ${cards.map((idea) => `<div class="icard" draggable="true" data-idea="${idea.id}">
+              <div class="t">${esc(idea.title)}</div>
+              <div class="hook">${esc(idea.hook || idea.hypothesis || "No hook/hypothesis written yet")}</div>
+              <div class="meta">${esc(idea.topic || "Unspecified")} · ${esc(idea.type)} · ${esc(idea.priority)} priority${idea.sourceVideoId ? " · sourced from research" : ""}</div>
+              <div class="actions" style="margin-top:8px">
+                <button class="btn primary" data-create-exp="${idea.id}">Create Experiment</button>
+              </div>
+            </div>`).join("")}
+          </div>`;
+        }).join("")}
+      </div>`}
+    `;
   }
 
   function lab() {
+    const gate = workflowGate();
+    if (gate) return gate;
     const e = state.experiments;
-    const pub = e.filter((x) => x.status === "Published").length;
-    const avg = Math.round(e.filter((x) => x.v24).reduce((s, x) => s + x.v24, 0) / e.filter((x) => x.v24).length);
-    const avgS = Math.round(e.filter((x) => x.subs).reduce((s, x) => s + x.subs, 0) / e.filter((x) => x.subs).length);
+    const summary = state.workflowSummary || {};
+    const decisions = summary.decisions || {};
+    const learning = state.learningSignals || [];
     return `
-      <div style="font-size:20px;font-weight:600">Christina Lab</div>
-      <p class="sub">Turn content ideas into measurable experiments.</p>
+      <div style="font-size:20px;font-weight:600">Christina Lab experiments</div>
+      <p class="sub">Ideas become measurable tests. Record the actual result, then choose GO / TEST / HOLD based on your evidence.</p>
+      <div class="actions" style="margin-bottom:12px"><button class="btn primary" id="newExperiment">Create experiment</button></div>
       <div class="metrics">
-        <div class="metric"><label>Experiments</label><div class="val num">${e.length}</div></div>
-        <div class="metric"><label>Published</label><div class="val num">${pub}</div></div>
-        <div class="metric"><label>GO</label><div class="val num">${e.filter((x) => x.decision === "GO").length}</div></div>
-        <div class="metric"><label>TEST</label><div class="val num">${e.filter((x) => x.decision === "TEST").length}</div></div>
-        <div class="metric"><label>HOLD</label><div class="val num">${e.filter((x) => x.decision === "HOLD").length}</div></div>
-        <div class="metric"><label>Average 24h Views</label><div class="val num">${fmt(avg)}</div></div>
-        <div class="metric"><label>Average Subscriber Gain</label><div class="val num">+${avgS}</div></div>
+        <div class="metric"><label>Experiments</label><div class="val num">${summary.experiments ?? e.length}</div></div>
+        <div class="metric"><label>Published</label><div class="val num">${summary.publishedExperiments ?? e.filter((x) => x.status === "Published").length}</div></div>
+        <div class="metric"><label>GO</label><div class="val num">${decisions.GO || 0}</div></div>
+        <div class="metric"><label>TEST</label><div class="val num">${decisions.TEST || 0}</div></div>
+        <div class="metric"><label>HOLD</label><div class="val num">${decisions.HOLD || 0}</div></div>
+        <div class="metric"><label>Average 24h Views</label><div class="val num">${summary.average24hViews == null ? "—" : fmt(summary.average24hViews)}</div></div>
+        <div class="metric"><label>Average Subscriber Gain</label><div class="val num">${summary.averageSubscriberGain == null ? "—" : (summary.averageSubscriberGain >= 0 ? "+" : "") + summary.averageSubscriberGain}</div></div>
       </div>
-      <div class="card">
+
+      ${e.length ? `<div class="card">
         <table class="table">
-          <thead><tr><th>Experiment</th><th>Topic</th><th>Format</th><th>24h</th><th>7d</th><th>Ret.</th><th>Subs</th><th>Decision</th></tr></thead>
+          <thead><tr><th>Experiment</th><th>Topic</th><th>Status</th><th>24h</th><th>7d</th><th>Ret.</th><th>Subs</th><th>Decision</th></tr></thead>
           <tbody>
-            ${e
-              .map(
-                (x) => `<tr>
-                  <td><a href="#/experiment/${x.id}">${x.id}</a><div class="meta">${x.name}</div></td>
-                  <td>${x.topic}</td><td>${x.format}</td>
-                  <td class="num">${x.v24 ? fmt(x.v24) : '<span class="dim">Not connected</span>'}</td>
-                  <td class="num">${x.v7 ? fmt(x.v7) : "—"}</td>
-                  <td>${x.retention ?? "—"}</td>
-                  <td>${x.subs != null ? "+" + x.subs : "—"}</td>
-                  <td>
-                    <select class="dec" data-exp="${x.id}">
-                      <option ${x.decision === "GO" ? "selected" : ""}>GO</option>
-                      <option ${x.decision === "TEST" ? "selected" : ""}>TEST</option>
-                      <option ${x.decision === "HOLD" ? "selected" : ""}>HOLD</option>
-                    </select>
-                  </td>
-                </tr>`
-              )
-              .join("")}
+            ${e.map((x) => `<tr>
+              <td><a href="#/experiment/${x.id}">EXP-${String(x.id).padStart(3, "0")}</a><div class="meta">${esc(x.name)}</div></td>
+              <td>${esc(x.topic || "Unspecified")}<div class="meta">${esc(x.format)}</div></td>
+              <td>${esc(x.status)}</td>
+              <td class="num">${x.v24 == null ? "—" : fmt(x.v24)}</td>
+              <td class="num">${x.v7 == null ? "—" : fmt(x.v7)}</td>
+              <td>${x.retention == null ? "—" : Number(x.retention).toFixed(1) + "%"}</td>
+              <td>${x.subs == null ? "—" : (x.subs >= 0 ? "+" : "") + x.subs}</td>
+              <td>
+                <select class="dec" data-exp="${x.id}">
+                  <option value="UNDECIDED" ${x.decision === "UNDECIDED" ? "selected" : ""}>Undecided</option>
+                  <option ${x.decision === "GO" ? "selected" : ""}>GO</option>
+                  <option ${x.decision === "TEST" ? "selected" : ""}>TEST</option>
+                  <option ${x.decision === "HOLD" ? "selected" : ""}>HOLD</option>
+                </select>
+              </td>
+            </tr>`).join("")}
           </tbody>
         </table>
+      </div>` : `<div class="empty"><h3>No experiments yet.</h3><p>Create an experiment from a Ready idea, then record what actually happened.</p><button class="btn primary" data-go="/ideas">Open Ideas</button></div>`}
+
+      <div class="card" style="margin-top:12px">
+        <div class="card-h"><h2>What Christina Lab is learning</h2><p>Creator-specific evidence from your persisted experiments — not market popularity.</p></div>
+        ${learning.length
+          ? learning.map((row) => `<div class="rank"><span><b>${esc(row.topic)}</b></span><span>${row.experiments} experiment${row.experiments === 1 ? "" : "s"}</span><span>GO ${row.GO || 0} · TEST ${row.TEST || 0} · HOLD ${row.HOLD || 0}</span><span>${row.avg24hViews == null ? "24h pending" : fmt(row.avg24hViews) + " avg 24h"}${row.avgSubscriberGain == null ? "" : " · " + (row.avgSubscriberGain >= 0 ? "+" : "") + row.avgSubscriberGain + " subs"}</span></div>`).join("")
+          : `<div class="empty"><p>No creator-specific evidence yet. Publish a test, enter its real result, and make a GO / TEST / HOLD decision.</p></div>`}
       </div>
-      <p class="sub">GO = strong evidence to scale. TEST = promising, need more runs. HOLD = not a priority yet. Decisions are yours — not AI certainty.</p>`;
+      <p class="sub">GO = evidence worth scaling. TEST = promising but needs another run. HOLD = not a current priority. Christina Lab stores your decision; it does not make the decision for you.</p>
+    `;
   }
 
   function experiment(id) {
-    const x = state.experiments.find((e) => e.id === id) || state.experiments[0];
+    const gate = workflowGate();
+    if (gate) return gate;
+    const x = state.experiments.find((item) => String(item.id) === String(id));
+    if (!x) {
+      return `<div class="empty"><h3>Experiment not found.</h3><p>It may not have been created yet or was loaded before the latest workflow refresh.</p><button class="btn" data-go="/lab">Back to Experiments</button></div>`;
+    }
+    const idea = state.ideas.find((item) => String(item.id) === String(x.ideaId));
     return `
-      <p class="sub">${x.id} · ${x.status}</p>
-      <h2 style="margin-top:0">${x.name}</h2>
+      <p class="sub">EXP-${String(x.id).padStart(3, "0")} · ${esc(x.status)} · source idea ${idea ? esc(idea.title) : "#" + x.ideaId}</p>
+      <h2 style="margin-top:0">${esc(x.name)}</h2>
       <div class="card" style="padding:14px;margin-bottom:12px">
         <div class="meta">Hypothesis</div>
-        <p>${x.hypothesis}</p>
-        <div class="meta">Source research · original idea ${x.ideaId}</div>
+        <p>${esc(x.hypothesis || "No hypothesis recorded yet.")}</p>
       </div>
       <div class="metrics">
-        <div class="metric"><label>24h views</label><div class="val num">${x.v24 ? fmt(x.v24) : "Not connected"}</div></div>
-        <div class="metric"><label>7d views</label><div class="val num">${x.v7 ? fmt(x.v7) : "—"}</div></div>
-        <div class="metric"><label>Retention</label><div class="val num">${x.retention ?? "—"}%</div></div>
-        <div class="metric"><label>Subscribers</label><div class="val num">${x.subs != null ? "+" + x.subs : "—"}</div></div>
+        <div class="metric"><label>24h views</label><div class="val num">${x.v24 == null ? "—" : fmt(x.v24)}</div></div>
+        <div class="metric"><label>7d views</label><div class="val num">${x.v7 == null ? "—" : fmt(x.v7)}</div></div>
+        <div class="metric"><label>Retention</label><div class="val num">${x.retention == null ? "—" : Number(x.retention).toFixed(1) + "%"}</div></div>
+        <div class="metric"><label>Subscribers</label><div class="val num">${x.subs == null ? "—" : (x.subs >= 0 ? "+" : "") + x.subs}</div></div>
+        <div class="metric"><label>CTR</label><div class="val num">${x.ctr == null ? "—" : Number(x.ctr).toFixed(1) + "%"}</div></div>
+        <div class="metric"><label>Decision</label><div class="val">${esc(x.decision === "UNDECIDED" ? "Undecided" : x.decision)}</div></div>
       </div>
-      <div class="card why">
-        <h2 style="font-size:14px;margin:0 0 8px">What did we learn?</h2>
-        <p>${x.lesson || "Publish first, then write the learning."}</p>
-        <div class="meta">Next test</div>
-        <p>${x.next}</p>
-        <label>Decision
-          <select class="dec" data-exp="${x.id}">
-            <option ${x.decision === "GO" ? "selected" : ""}>GO</option>
-            <option ${x.decision === "TEST" ? "selected" : ""}>TEST</option>
-            <option ${x.decision === "HOLD" ? "selected" : ""}>HOLD</option>
-          </select>
-        </label>
-      </div>`;
+
+      <div class="card" style="padding:14px">
+        <h2 style="font-size:14px;margin:0 0 10px">Record actual result</h2>
+        <form class="form" id="experimentResultForm" data-exp="${x.id}">
+          <label>Status <select name="status"><option ${x.status === "Draft" ? "selected" : ""}>Draft</option><option ${x.status === "Ready" ? "selected" : ""}>Ready</option><option ${x.status === "Published" ? "selected" : ""}>Published</option></select></label>
+          <label>Published date <input name="publishedAt" type="date" value="${esc(x.publishedAt || "")}" /></label>
+          <div class="grid2">
+            <label>24h views <input name="v24" type="number" min="0" value="${x.v24 ?? ""}" /></label>
+            <label>7d views <input name="v7" type="number" min="0" value="${x.v7 ?? ""}" /></label>
+            <label>Retention % <input name="retention" type="number" min="0" max="100" step="0.1" value="${x.retention ?? ""}" /></label>
+            <label>Subscriber gain <input name="subs" type="number" value="${x.subs ?? ""}" /></label>
+            <label>CTR % <input name="ctr" type="number" min="0" max="100" step="0.1" value="${x.ctr ?? ""}" /></label>
+          </div>
+          <label>Result summary <textarea name="result" rows="2">${esc(x.result || "")}</textarea></label>
+          <label>What did we learn? <textarea name="lesson" rows="3">${esc(x.lesson || "")}</textarea></label>
+          <label>Next test <textarea name="next" rows="2">${esc(x.next || "")}</textarea></label>
+          <label>Decision
+            <select name="decision">
+              <option value="UNDECIDED" ${x.decision === "UNDECIDED" ? "selected" : ""}>Undecided</option>
+              <option ${x.decision === "GO" ? "selected" : ""}>GO</option>
+              <option ${x.decision === "TEST" ? "selected" : ""}>TEST</option>
+              <option ${x.decision === "HOLD" ? "selected" : ""}>HOLD</option>
+            </select>
+          </label>
+          <button class="btn primary" type="submit">Save experiment result</button>
+        </form>
+      </div>
+    `;
   }
 
   function videosPage() {
-    return `<p class="sub">Christina's published YouTube videos, tied to experiments.</p>
-      <div class="card">${D.myVideos
-        .map(
-          (v) => `<div class="opp">
-            ${img("Published video thumbnail for " + v.title)}
-            <div><div class="t">${v.title}</div>
-            <div class="meta">${v.date} · ${v.type} · ${fmt(v.views)} views · 24h ${fmt(v.v24)} · 7d ${fmt(v.v7)} · +${v.subs} subs · ${v.retention}% ret · CTR ${v.ctr}%</div></div>
-            <div><a href="#/experiment/${v.exp}">${v.exp}</a> <span class="badge ${v.decision.toLowerCase()}">${v.decision}</span></div>
-          </div>`
-        )
-        .join("")}</div>`;
+    const gate = workflowGate();
+    if (gate) return gate;
+    const published = state.experiments.filter((item) => item.status === "Published");
+    return `<p class="sub">Published creator experiments. YouTube Creator Analytics is not connected yet, so these are the real results you entered manually.</p>
+      ${published.length ? `<div class="card">${published.map((x) => `<div class="opp" style="grid-template-columns:1fr auto">
+        <div><div class="t">${esc(x.name)}</div>
+        <div class="meta">${esc(x.publishedAt || "date not recorded")} · ${esc(x.format)} · 24h ${x.v24 == null ? "—" : fmt(x.v24)} · 7d ${x.v7 == null ? "—" : fmt(x.v7)} · ${x.subs == null ? "—" : (x.subs >= 0 ? "+" : "") + x.subs + " subs"} · ${x.retention == null ? "—" : Number(x.retention).toFixed(1) + "% retention"}</div></div>
+        <div><a href="#/experiment/${x.id}">EXP-${String(x.id).padStart(3, "0")}</a> <span class="badge ${String(x.decision || "").toLowerCase()}">${esc(x.decision === "UNDECIDED" ? "Undecided" : x.decision)}</span></div>
+      </div>`).join("")}</div>` : `<div class="empty"><h3>No published experiments yet.</h3><p>When you publish an experiment and save its result, it will appear here.</p><button class="btn primary" data-go="/lab">Open Experiments</button></div>`}`;
   }
 
   function patterns() {
@@ -1288,19 +1512,81 @@
       };
     });
     document.getElementById("newIdea")?.addEventListener("click", () => openIdeaModal(null));
-    document.querySelectorAll(".dec").forEach((s) => {
-      s.onchange = () => {
-        const ex = state.experiments.find((e) => e.id === s.dataset.exp);
-        if (ex) ex.decision = s.value;
-        toast("Decision changed to " + s.value);
-        render();
+    document.getElementById("newExperiment")?.addEventListener("click", () => openExperimentModal(null));
+    document.querySelectorAll("[data-create-exp]").forEach((button) => {
+      button.onclick = () => {
+        const idea = state.ideas.find((item) => String(item.id) === String(button.dataset.createExp));
+        if (idea) openExperimentModal(idea);
       };
     });
-    document.getElementById("noteForm")?.addEventListener("submit", (e) => {
+    document.querySelectorAll(".dec").forEach((s) => {
+      s.onchange = async () => {
+        const experimentId = Number(s.dataset.exp);
+        try {
+          await apiJson("/api/experiments/" + experimentId, {
+            method: "PATCH",
+            body: { decision: s.value },
+          });
+          state.workflowLoaded = false;
+          await loadWorkflowData(true);
+          toast("Decision changed to " + (s.value === "UNDECIDED" ? "Undecided" : s.value));
+        } catch (error) {
+          toast(error?.message || "Could not update decision");
+        }
+      };
+    });
+    document.getElementById("noteForm")?.addEventListener("submit", async (e) => {
       e.preventDefault();
-      const f = new FormData(e.target);
-      state.notes[e.target.dataset.vid] = { why: f.get("why"), adapt: f.get("adapt"), angle: f.get("angle") };
-      toast("Note saved");
+      const form = e.target;
+      const f = new FormData(form);
+      const notes = { why: f.get("why"), adapt: f.get("adapt"), angle: f.get("angle") };
+      try {
+        const item = await apiJson("/api/research/" + encodeURIComponent(form.dataset.vid), {
+          method: "PUT",
+          body: notes,
+        });
+        state.notes[form.dataset.vid] = notes;
+        state.saved.add(form.dataset.vid);
+        const index = state.savedResearch.findIndex((row) => (row.videoId || row.id) === form.dataset.vid);
+        if (index >= 0) state.savedResearch[index] = item;
+        else state.savedResearch.unshift(item);
+        toast("Research notes saved");
+        render();
+      } catch (error) {
+        toast(error?.message || "Could not save research notes");
+      }
+    });
+    document.getElementById("experimentResultForm")?.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const form = e.target;
+      const f = new FormData(form);
+      const numberOrNull = (name) => {
+        const raw = String(f.get(name) ?? "").trim();
+        return raw === "" ? null : Number(raw);
+      };
+      try {
+        await apiJson("/api/experiments/" + Number(form.dataset.exp), {
+          method: "PATCH",
+          body: {
+            status: f.get("status"),
+            publishedAt: String(f.get("publishedAt") || "").trim() || null,
+            v24: numberOrNull("v24"),
+            v7: numberOrNull("v7"),
+            retention: numberOrNull("retention"),
+            subs: numberOrNull("subs"),
+            ctr: numberOrNull("ctr"),
+            result: f.get("result"),
+            lesson: f.get("lesson"),
+            next: f.get("next"),
+            decision: f.get("decision"),
+          },
+        });
+        state.workflowLoaded = false;
+        await loadWorkflowData(true);
+        toast("Experiment result saved");
+      } catch (error) {
+        toast(error?.message || "Could not save experiment result");
+      }
     });
     document.getElementById("yt1")?.addEventListener("click", () => {
       state.connected = !state.connected;
@@ -1318,13 +1604,27 @@
     });
     document.querySelectorAll(".kcol").forEach((col) => {
       col.ondragover = (e) => e.preventDefault();
-      col.ondrop = (e) => {
+      col.ondrop = async (e) => {
         e.preventDefault();
-        const id = e.dataTransfer.getData("id");
-        const idea = state.ideas.find((i) => i.id === id);
-        if (idea) idea.status = col.dataset.col;
-        toast("Idea moved to " + col.dataset.col);
+        const id = Number(e.dataTransfer.getData("id"));
+        const idea = state.ideas.find((item) => Number(item.id) === id);
+        if (!idea || idea.status === col.dataset.col) return;
+        const previous = idea.status;
+        idea.status = col.dataset.col;
         render();
+        try {
+          await apiJson("/api/ideas/" + id, {
+            method: "PATCH",
+            body: { status: col.dataset.col },
+          });
+          state.workflowLoaded = false;
+          await loadWorkflowData(true);
+          toast("Idea moved to " + col.dataset.col);
+        } catch (error) {
+          idea.status = previous;
+          render();
+          toast(error?.message || "Could not move idea");
+        }
       };
     });
     document.getElementById("retry")?.addEventListener("click", () => {
@@ -1337,6 +1637,10 @@
     document.getElementById("retryPatterns")?.addEventListener("click", () => {
       state.patternsData = null;
       loadPatternsData(true);
+    });
+    document.getElementById("retryWorkflow")?.addEventListener("click", () => {
+      state.workflowLoaded = false;
+      loadWorkflowData(true);
     });
   }
 

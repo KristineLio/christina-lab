@@ -248,6 +248,67 @@ class SnapshotStore:
 
                 CREATE INDEX IF NOT EXISTS idx_analyses_topic
                 ON video_analyses(topic, observed_at);
+
+                CREATE TABLE IF NOT EXISTS saved_research (
+                    video_id TEXT PRIMARY KEY,
+                    saved_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    why_saved TEXT NOT NULL DEFAULT '',
+                    adaptation TEXT NOT NULL DEFAULT '',
+                    unique_angle TEXT NOT NULL DEFAULT '',
+                    collection_name TEXT NOT NULL DEFAULT 'General',
+                    FOREIGN KEY(video_id) REFERENCES videos(video_id) ON DELETE CASCADE
+                );
+
+                CREATE TABLE IF NOT EXISTS ideas (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    source_video_id TEXT,
+                    title TEXT NOT NULL,
+                    hook TEXT NOT NULL DEFAULT '',
+                    topic TEXT NOT NULL DEFAULT '',
+                    content_type TEXT NOT NULL DEFAULT 'Long-form',
+                    angle TEXT NOT NULL DEFAULT '',
+                    audience TEXT NOT NULL DEFAULT '',
+                    hypothesis TEXT NOT NULL DEFAULT '',
+                    notes TEXT NOT NULL DEFAULT '',
+                    priority TEXT NOT NULL DEFAULT 'Med',
+                    status TEXT NOT NULL DEFAULT 'Draft',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY(source_video_id) REFERENCES videos(video_id) ON DELETE SET NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_ideas_status
+                ON ideas(status, updated_at);
+
+                CREATE TABLE IF NOT EXISTS experiments (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    idea_id INTEGER NOT NULL,
+                    name TEXT NOT NULL,
+                    topic TEXT NOT NULL DEFAULT '',
+                    format TEXT NOT NULL DEFAULT 'Long-form',
+                    hypothesis TEXT NOT NULL DEFAULT '',
+                    status TEXT NOT NULL DEFAULT 'Draft',
+                    published_at TEXT,
+                    views_24h INTEGER,
+                    views_7d INTEGER,
+                    retention REAL,
+                    subscribers INTEGER,
+                    ctr REAL,
+                    result TEXT NOT NULL DEFAULT '',
+                    decision TEXT NOT NULL DEFAULT 'UNDECIDED',
+                    lesson TEXT NOT NULL DEFAULT '',
+                    next_test TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY(idea_id) REFERENCES ideas(id) ON DELETE CASCADE
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_experiments_idea
+                ON experiments(idea_id, updated_at);
+
+                CREATE INDEX IF NOT EXISTS idx_experiments_decision
+                ON experiments(decision, updated_at);
                 """
             )
 
@@ -907,6 +968,526 @@ class SnapshotStore:
                 "titleSignals": "Phrase-first, SEO-cleaned literal title signals from analyzed Discover candidates only; baseline-only channel-history uploads are excluded; signals must repeat across at least two different channels; no AI labeling.",
                 "growthPatterns": "Uses only videos with at least two stored snapshots.",
             },
+        }
+
+    def _research_row(self, db: sqlite3.Connection, video_id: str) -> sqlite3.Row | None:
+        return db.execute(
+            """
+            SELECT
+                r.video_id,
+                r.saved_at,
+                r.updated_at,
+                r.why_saved,
+                r.adaptation,
+                r.unique_angle,
+                r.collection_name,
+                v.title,
+                v.channel_id,
+                v.channel_title,
+                v.content_type,
+                v.live_status,
+                v.thumbnail,
+                v.youtube_url,
+                s.views,
+                s.likes,
+                s.comments,
+                s.subscribers,
+                s.age_hours,
+                a.topic,
+                a.opportunity,
+                a.outlier,
+                a.baseline,
+                a.baseline_method,
+                a.views_day,
+                a.engagement,
+                a.views_sub,
+                (
+                    SELECT COUNT(*)
+                    FROM ideas i
+                    WHERE i.source_video_id = r.video_id
+                ) AS idea_count
+            FROM saved_research r
+            JOIN videos v ON v.video_id = r.video_id
+            LEFT JOIN video_snapshots s ON s.id = (
+                SELECT s2.id
+                FROM video_snapshots s2
+                WHERE s2.video_id = r.video_id
+                ORDER BY s2.observed_at DESC
+                LIMIT 1
+            )
+            LEFT JOIN video_analyses a ON a.id = (
+                SELECT a2.id
+                FROM video_analyses a2
+                WHERE a2.video_id = r.video_id
+                ORDER BY a2.id DESC
+                LIMIT 1
+            )
+            WHERE r.video_id = ?
+            """,
+            (video_id,),
+        ).fetchone()
+
+    @staticmethod
+    def _serialize_research(row: sqlite3.Row) -> dict:
+        return {
+            "id": row["video_id"],
+            "videoId": row["video_id"],
+            "savedAt": row["saved_at"],
+            "updatedAt": row["updated_at"],
+            "why": row["why_saved"],
+            "adapt": row["adaptation"],
+            "angle": row["unique_angle"],
+            "collection": row["collection_name"],
+            "title": row["title"],
+            "channelId": row["channel_id"],
+            "channel": row["channel_title"] or row["channel_id"],
+            "type": row["content_type"],
+            "liveStatus": row["live_status"],
+            "thumbnail": row["thumbnail"],
+            "youtubeUrl": row["youtube_url"],
+            "views": int(row["views"] or 0),
+            "likes": int(row["likes"] or 0),
+            "comments": int(row["comments"] or 0),
+            "subs": int(row["subscribers"]) if row["subscribers"] is not None else None,
+            "ageHours": round(float(row["age_hours"] or 0), 2),
+            "topic": row["topic"] or "",
+            "opportunity": int(row["opportunity"]) if row["opportunity"] is not None else None,
+            "outlier": float(row["outlier"]) if row["outlier"] is not None else None,
+            "baseline": int(row["baseline"]) if row["baseline"] is not None else None,
+            "baselineMethod": row["baseline_method"] or "",
+            "viewsDay": round(float(row["views_day"] or 0), 2),
+            "engagement": round(float(row["engagement"] or 0), 2),
+            "viewsSub": float(row["views_sub"]) if row["views_sub"] is not None else None,
+            "ideaCount": int(row["idea_count"] or 0),
+        }
+
+    def save_research(
+        self,
+        video_id: str,
+        *,
+        why: str | None = None,
+        adapt: str | None = None,
+        angle: str | None = None,
+        collection: str | None = None,
+    ) -> dict:
+        now = _iso(_utc_now())
+        with self._connect() as db:
+            exists = db.execute(
+                "SELECT 1 FROM videos WHERE video_id = ?",
+                (video_id,),
+            ).fetchone()
+            if not exists:
+                raise ValueError("Video is not in Christina Lab's research database yet.")
+
+            current = db.execute(
+                "SELECT * FROM saved_research WHERE video_id = ?",
+                (video_id,),
+            ).fetchone()
+
+            if current is None:
+                db.execute(
+                    """
+                    INSERT INTO saved_research (
+                        video_id, saved_at, updated_at, why_saved, adaptation,
+                        unique_angle, collection_name
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        video_id,
+                        now,
+                        now,
+                        why or "",
+                        adapt or "",
+                        angle or "",
+                        collection or "General",
+                    ),
+                )
+            else:
+                db.execute(
+                    """
+                    UPDATE saved_research
+                    SET updated_at = ?,
+                        why_saved = ?,
+                        adaptation = ?,
+                        unique_angle = ?,
+                        collection_name = ?
+                    WHERE video_id = ?
+                    """,
+                    (
+                        now,
+                        current["why_saved"] if why is None else why,
+                        current["adaptation"] if adapt is None else adapt,
+                        current["unique_angle"] if angle is None else angle,
+                        current["collection_name"] if collection is None else collection,
+                        video_id,
+                    ),
+                )
+
+            row = self._research_row(db, video_id)
+            if row is None:
+                raise ValueError("Could not load saved research after saving.")
+            return self._serialize_research(row)
+
+    def remove_saved_research(self, video_id: str) -> bool:
+        with self._connect() as db:
+            cursor = db.execute(
+                "DELETE FROM saved_research WHERE video_id = ?",
+                (video_id,),
+            )
+            return cursor.rowcount > 0
+
+    def list_saved_research(self) -> list[dict]:
+        with self._connect() as db:
+            ids = [
+                row["video_id"]
+                for row in db.execute(
+                    "SELECT video_id FROM saved_research ORDER BY saved_at DESC"
+                ).fetchall()
+            ]
+            rows = [self._research_row(db, video_id) for video_id in ids]
+        return [self._serialize_research(row) for row in rows if row is not None]
+
+    @staticmethod
+    def _serialize_idea(row: sqlite3.Row) -> dict:
+        return {
+            "id": int(row["id"]),
+            "sourceVideoId": row["source_video_id"],
+            "title": row["title"],
+            "hook": row["hook"],
+            "topic": row["topic"],
+            "type": row["content_type"],
+            "angle": row["angle"],
+            "audience": row["audience"],
+            "hypothesis": row["hypothesis"],
+            "notes": row["notes"],
+            "priority": row["priority"],
+            "status": row["status"],
+            "createdAt": row["created_at"],
+            "updatedAt": row["updated_at"],
+            "sources": 1 if row["source_video_id"] else 0,
+        }
+
+    def create_idea(
+        self,
+        *,
+        title: str,
+        source_video_id: str | None = None,
+        hook: str = "",
+        topic: str = "",
+        content_type: str = "Long-form",
+        angle: str = "",
+        audience: str = "",
+        hypothesis: str = "",
+        notes: str = "",
+        priority: str = "Med",
+        status: str = "Draft",
+    ) -> dict:
+        now = _iso(_utc_now())
+        clean_title = str(title or "").strip()
+        if not clean_title:
+            raise ValueError("Idea title is required.")
+
+        with self._connect() as db:
+            if source_video_id:
+                exists = db.execute(
+                    "SELECT 1 FROM videos WHERE video_id = ?",
+                    (source_video_id,),
+                ).fetchone()
+                if not exists:
+                    raise ValueError("Source video is not in Christina Lab's research database.")
+
+            cursor = db.execute(
+                """
+                INSERT INTO ideas (
+                    source_video_id, title, hook, topic, content_type, angle,
+                    audience, hypothesis, notes, priority, status, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    source_video_id,
+                    clean_title,
+                    hook,
+                    topic,
+                    content_type,
+                    angle,
+                    audience,
+                    hypothesis,
+                    notes,
+                    priority,
+                    status,
+                    now,
+                    now,
+                ),
+            )
+            row = db.execute("SELECT * FROM ideas WHERE id = ?", (cursor.lastrowid,)).fetchone()
+            return self._serialize_idea(row)
+
+    def list_ideas(self) -> list[dict]:
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT * FROM ideas ORDER BY updated_at DESC, id DESC"
+            ).fetchall()
+        return [self._serialize_idea(row) for row in rows]
+
+    def get_idea(self, idea_id: int) -> dict | None:
+        with self._connect() as db:
+            row = db.execute("SELECT * FROM ideas WHERE id = ?", (idea_id,)).fetchone()
+        return self._serialize_idea(row) if row else None
+
+    def update_idea(self, idea_id: int, changes: dict) -> dict | None:
+        allowed = {
+            "title": "title",
+            "hook": "hook",
+            "topic": "topic",
+            "contentType": "content_type",
+            "angle": "angle",
+            "audience": "audience",
+            "hypothesis": "hypothesis",
+            "notes": "notes",
+            "priority": "priority",
+            "status": "status",
+        }
+        updates = []
+        values = []
+        for key, column in allowed.items():
+            if key in changes and changes[key] is not None:
+                updates.append(f"{column} = ?")
+                values.append(changes[key])
+
+        if not updates:
+            return self.get_idea(idea_id)
+
+        updates.append("updated_at = ?")
+        values.append(_iso(_utc_now()))
+        values.append(idea_id)
+
+        with self._connect() as db:
+            cursor = db.execute(
+                f"UPDATE ideas SET {', '.join(updates)} WHERE id = ?",
+                values,
+            )
+            if cursor.rowcount == 0:
+                return None
+            row = db.execute("SELECT * FROM ideas WHERE id = ?", (idea_id,)).fetchone()
+            return self._serialize_idea(row)
+
+    @staticmethod
+    def _serialize_experiment(row: sqlite3.Row) -> dict:
+        return {
+            "id": int(row["id"]),
+            "ideaId": int(row["idea_id"]),
+            "name": row["name"],
+            "topic": row["topic"],
+            "format": row["format"],
+            "hypothesis": row["hypothesis"],
+            "status": row["status"],
+            "publishedAt": row["published_at"],
+            "v24": int(row["views_24h"]) if row["views_24h"] is not None else None,
+            "v7": int(row["views_7d"]) if row["views_7d"] is not None else None,
+            "retention": float(row["retention"]) if row["retention"] is not None else None,
+            "subs": int(row["subscribers"]) if row["subscribers"] is not None else None,
+            "ctr": float(row["ctr"]) if row["ctr"] is not None else None,
+            "result": row["result"],
+            "decision": row["decision"],
+            "lesson": row["lesson"],
+            "next": row["next_test"],
+            "createdAt": row["created_at"],
+            "updatedAt": row["updated_at"],
+        }
+
+    def create_experiment(
+        self,
+        *,
+        idea_id: int,
+        name: str | None = None,
+        hypothesis: str | None = None,
+        status: str = "Draft",
+        decision: str = "UNDECIDED",
+    ) -> dict:
+        now = _iso(_utc_now())
+        with self._connect() as db:
+            idea = db.execute("SELECT * FROM ideas WHERE id = ?", (idea_id,)).fetchone()
+            if idea is None:
+                raise ValueError("Idea not found.")
+
+            cursor = db.execute(
+                """
+                INSERT INTO experiments (
+                    idea_id, name, topic, format, hypothesis, status, decision,
+                    created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    idea_id,
+                    (name or idea["title"]).strip(),
+                    idea["topic"],
+                    idea["content_type"],
+                    hypothesis if hypothesis is not None else idea["hypothesis"],
+                    status,
+                    decision,
+                    now,
+                    now,
+                ),
+            )
+            row = db.execute(
+                "SELECT * FROM experiments WHERE id = ?",
+                (cursor.lastrowid,),
+            ).fetchone()
+            return self._serialize_experiment(row)
+
+    def list_experiments(self) -> list[dict]:
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT * FROM experiments ORDER BY updated_at DESC, id DESC"
+            ).fetchall()
+        return [self._serialize_experiment(row) for row in rows]
+
+    def get_experiment(self, experiment_id: int) -> dict | None:
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT * FROM experiments WHERE id = ?",
+                (experiment_id,),
+            ).fetchone()
+        return self._serialize_experiment(row) if row else None
+
+    def update_experiment(self, experiment_id: int, changes: dict) -> dict | None:
+        allowed = {
+            "name": "name",
+            "hypothesis": "hypothesis",
+            "status": "status",
+            "publishedAt": "published_at",
+            "v24": "views_24h",
+            "v7": "views_7d",
+            "retention": "retention",
+            "subs": "subscribers",
+            "ctr": "ctr",
+            "result": "result",
+            "decision": "decision",
+            "lesson": "lesson",
+            "next": "next_test",
+        }
+        updates = []
+        values = []
+        for key, column in allowed.items():
+            if key in changes:
+                updates.append(f"{column} = ?")
+                values.append(changes[key])
+
+        if not updates:
+            return self.get_experiment(experiment_id)
+
+        updates.append("updated_at = ?")
+        values.append(_iso(_utc_now()))
+        values.append(experiment_id)
+
+        with self._connect() as db:
+            cursor = db.execute(
+                f"UPDATE experiments SET {', '.join(updates)} WHERE id = ?",
+                values,
+            )
+            if cursor.rowcount == 0:
+                return None
+
+            row = db.execute(
+                "SELECT * FROM experiments WHERE id = ?",
+                (experiment_id,),
+            ).fetchone()
+            if row["status"] == "Published":
+                db.execute(
+                    """
+                    UPDATE ideas
+                    SET status = 'Published', updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (_iso(_utc_now()), row["idea_id"]),
+                )
+            return self._serialize_experiment(row)
+
+    def workflow_summary(self) -> dict:
+        saved = self.list_saved_research()
+        ideas = self.list_ideas()
+        experiments = self.list_experiments()
+
+        decision_counts = {"GO": 0, "TEST": 0, "HOLD": 0, "UNDECIDED": 0}
+        for experiment in experiments:
+            decision = experiment["decision"]
+            decision_counts[decision] = decision_counts.get(decision, 0) + 1
+
+        measured_v24 = [e["v24"] for e in experiments if e["v24"] is not None]
+        measured_subs = [e["subs"] for e in experiments if e["subs"] is not None]
+
+        by_topic: dict[str, dict] = {}
+        for experiment in experiments:
+            topic = (experiment["topic"] or "Unspecified").strip() or "Unspecified"
+            bucket = by_topic.setdefault(
+                topic,
+                {
+                    "topic": topic,
+                    "experiments": 0,
+                    "GO": 0,
+                    "TEST": 0,
+                    "HOLD": 0,
+                    "UNDECIDED": 0,
+                    "views24": [],
+                    "subscribers": [],
+                },
+            )
+            bucket["experiments"] += 1
+            decision = experiment["decision"]
+            bucket[decision] = bucket.get(decision, 0) + 1
+            if experiment["v24"] is not None:
+                bucket["views24"].append(experiment["v24"])
+            if experiment["subs"] is not None:
+                bucket["subscribers"].append(experiment["subs"])
+
+        learning_signals = []
+        for bucket in by_topic.values():
+            views = bucket.pop("views24")
+            subscribers = bucket.pop("subscribers")
+            bucket["avg24hViews"] = (
+                round(sum(views) / len(views)) if views else None
+            )
+            bucket["avgSubscriberGain"] = (
+                round(sum(subscribers) / len(subscribers), 1) if subscribers else None
+            )
+            learning_signals.append(bucket)
+
+        learning_signals.sort(
+            key=lambda row: (
+                row["experiments"],
+                row["GO"],
+                row["avg24hViews"] or 0,
+            ),
+            reverse=True,
+        )
+
+        return {
+            "savedResearch": saved,
+            "ideas": ideas,
+            "experiments": experiments,
+            "summary": {
+                "savedResearch": len(saved),
+                "ideas": len(ideas),
+                "experiments": len(experiments),
+                "publishedExperiments": sum(
+                    1 for experiment in experiments if experiment["status"] == "Published"
+                ),
+                "decisions": decision_counts,
+                "average24hViews": (
+                    round(sum(measured_v24) / len(measured_v24))
+                    if measured_v24
+                    else None
+                ),
+                "averageSubscriberGain": (
+                    round(sum(measured_subs) / len(measured_subs), 1)
+                    if measured_subs
+                    else None
+                ),
+            },
+            "learningSignals": learning_signals,
         }
 
     def stats(self) -> dict:

@@ -28,7 +28,7 @@ The VibeFlow frontend and final light analytics theme are merged into `main` and
 
 ### Phase 2 — Backend 🚧
 
-**YouTube Milestones 1–5 implemented:**
+**YouTube Milestones 1–6 implemented:**
 
 - FastAPI backend
 - real YouTube keyword search
@@ -63,18 +63,26 @@ The VibeFlow frontend and final light analytics theme are merged into `main` and
 - growth distributions with median, top quartile, measured-history count, and positive-growth share
 - clearer dataset labels distinguishing all observed videos from analyzed Discover candidates
 - empty/pending states when the dataset is too small instead of fabricated pattern conclusions
+- persisted Saved Research with creator notes: why / adaptation / unique angle
+- persisted idea pipeline: Draft → Ready → Published
+- source-video linkage from research into ideas
+- persisted experiments created from ideas
+- manual actual-result capture for 24h views, 7d views, retention, subscribers, CTR, result summary, lesson, and next test
+- persisted GO / TEST / HOLD decisions with an Undecided state before evidence exists
+- creator-specific learning summaries by topic from real experiments
+- published experiment results shown from persisted data instead of demo fixtures
 
 **Next backend milestone:**
 
-- add saved research persistence
-- connect Ideas/Experiments to persisted research
-- later: automated watchlist snapshot checks with quota-aware scheduling
+- replace remaining demo-only Analytics / Watchlists with persisted data
+- add quota-aware automated watchlist snapshot checks
+- later: YouTube Analytics integration for owned-channel metrics
 
 Later work:
 
-- saved research and ideas
-- creator experiment tracking
-- YouTube Analytics integration for owned-channel metrics
+- creator-owned YouTube Analytics OAuth
+- automated experiment metric import
+- scheduled snapshot monitoring
 
 ## Planned V1 workflow
 
