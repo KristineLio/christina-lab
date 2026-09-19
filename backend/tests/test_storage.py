@@ -292,6 +292,10 @@ def test_patterns_summary_comes_from_persisted_topics_titles_and_types(tmp_path)
     )
     assert beginners["channels"] == 3
     assert tools_beginners["channels"] == 3
+    ai_tools = next(
+        signal for signal in patterns["titleSignals"] if signal["term"] == "ai tools"
+    )
+    assert ai_tools["channels"] == 3
 
 
 
@@ -302,7 +306,7 @@ def test_title_signals_remove_seo_noise_and_require_multiple_channels(tmp_path):
 
     rows = [
         ("v1", "channel-a", "Copy Trading Journal #viral #shortsfeed #trending"),
-        ("v2", "channel-b", "My Copy Trading Journal #explore #ytshorts"),
+        ("v2", "channel-b", "My #copytrading Journal #explore #ytshorts"),
         # One channel repeating its own phrase should not create a market signal.
         ("v3", "channel-c", "Private Edge System"),
         ("v4", "channel-c", "Private Edge System Explained"),
@@ -331,7 +335,7 @@ def test_title_signals_remove_seo_noise_and_require_multiple_channels(tmp_path):
     assert "trading journal" in terms
     assert terms["trading journal"]["channels"] == 2
 
-    for noisy in ["viral", "shortsfeed", "trending", "explore", "ytshorts"]:
+    for noisy in ["viral", "shortsfeed", "trending", "explore", "ytshorts", "dubai"]:
         assert noisy not in terms
 
     assert "private edge" not in terms
