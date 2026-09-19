@@ -38,6 +38,15 @@ _TITLE_GENERIC_SINGLETONS = {
     "strategy", "trade", "trader", "traders", "trading", "update",
 }
 
+# Pairs made only from broad market/category words are usually just niche labels
+# ("crypto trading", "bitcoin market") rather than reusable title patterns.
+# Generic singleton words such as "gold" or "strategy" can still form useful
+# phrases together ("gold strategy", "trading setup").
+_TITLE_BROAD_CATEGORY_TERMS = {
+    "bitcoin", "btc", "crypto", "cryptocurrency", "live", "market", "markets",
+    "stock", "trade", "trader", "traders", "trading",
+}
+
 _TITLE_NORMALIZATIONS = {
     "aitools": ("ai", "tools"),
     "artificialintelligence": ("artificial", "intelligence"),
@@ -119,9 +128,10 @@ def _title_terms(title: str) -> set[str]:
     for first, second in zip(tokens, tokens[1:]):
         if first == second:
             continue
-        # Avoid phrases made entirely from generic category words such as
-        # "crypto trading", while preserving "copy trading" / "trading journal".
-        if first in _TITLE_GENERIC_SINGLETONS and second in _TITLE_GENERIC_SINGLETONS:
+        # Avoid phrases made entirely from broad category words such as
+        # "crypto trading", while preserving useful combinations such as
+        # "copy trading", "trading journal", "gold strategy", and "trading setup".
+        if first in _TITLE_BROAD_CATEGORY_TERMS and second in _TITLE_BROAD_CATEGORY_TERMS:
             continue
         terms.add(f"{first} {second}")
 
