@@ -232,6 +232,7 @@ def calculate_opportunity_score(
     baseline_sample_size: int,
     baseline_scope: str,
     baseline_method: str = "historical-snapshot-median",
+    historical_snapshot_sample_size: int = 0,
     live_broadcast_content: str = "none",
 ) -> dict:
     """Calculate Christina Lab's explainable 0-100 Opportunity Score.
@@ -413,7 +414,14 @@ def calculate_opportunity_score(
             "score": confidence_points,
             "max": 5,
             "label": (
-                f"Baseline confidence: {baseline_sample_size} comparison videos"
+                (
+                    f"Baseline confidence: historical · {baseline_sample_size} comparable snapshots"
+                    if historical_baseline
+                    else (
+                        f"Baseline confidence: provisional · {baseline_sample_size} recent videos · "
+                        f"{historical_snapshot_sample_size}/3 historical same-age samples"
+                    )
+                )
                 if outlier is not None
                 else "Baseline confidence unavailable"
             ),
