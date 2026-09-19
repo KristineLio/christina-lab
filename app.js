@@ -483,10 +483,10 @@
       <p class="sub">Real metrics from your local research database — no demo counters.</p>
 
       <div class="metrics">
-        <div class="metric"><label>Videos Tracked</label><div class="val num">${fmt(m.videosTracked || 0)}</div><div class="sec">unique public videos stored</div></div>
-        <div class="metric"><label>Snapshots Stored</label><div class="val num">${fmt(m.snapshotsStored || 0)}</div><div class="sec">real metric observations</div></div>
-        <div class="metric"><label>Growth Histories</label><div class="val num">${fmt(m.videosWithMultipleSnapshots || 0)}</div><div class="sec">videos with 2+ observations</div></div>
-        <div class="metric"><label>Analyzed Candidates</label><div class="val num">${fmt(m.analyzedCandidates || 0)}</div><div class="sec">${fmt(m.topicsTracked || 0)} search topics persisted</div></div>
+        <div class="metric"><label>Public Videos Observed</label><div class="val num">${fmt(m.videosTracked || 0)}</div><div class="sec">candidates + channel-history videos</div></div>
+        <div class="metric"><label>Metric Snapshots</label><div class="val num">${fmt(m.snapshotsStored || 0)}</div><div class="sec">timestamped public observations</div></div>
+        <div class="metric"><label>Measured Growth Histories</label><div class="val num">${fmt(m.videosWithMultipleSnapshots || 0)}</div><div class="sec">videos with 2+ observations</div></div>
+        <div class="metric"><label>Analyzed Search Results</label><div class="val num">${fmt(m.analyzedCandidates || 0)}</div><div class="sec">${fmt(m.topicsTracked || 0)} persisted Discover topics</div></div>
       </div>
 
       <div class="card">
@@ -1018,33 +1018,35 @@
       <p class="sub">Repeated signals calculated from Christina Lab's persisted YouTube research. No invented hook labels or fake percentages.</p>
 
       <div class="metrics">
-        <div class="metric"><label>Videos in Dataset</label><div class="val num">${fmt(dataset.videosTracked || 0)}</div></div>
-        <div class="metric"><label>Snapshots</label><div class="val num">${fmt(dataset.snapshotsStored || 0)}</div></div>
-        <div class="metric"><label>Analyzed Candidates</label><div class="val num">${fmt(dataset.analyzedCandidates || 0)}</div></div>
-        <div class="metric"><label>Growth Pairs</label><div class="val num">${fmt(dataset.growthPairs || 0)}</div><div class="sec">videos with 2+ snapshots</div></div>
+        <div class="metric"><label>Public Videos Observed</label><div class="val num">${fmt(dataset.videosTracked || 0)}</div><div class="sec">all persisted research videos</div></div>
+        <div class="metric"><label>Metric Snapshots</label><div class="val num">${fmt(dataset.snapshotsStored || 0)}</div><div class="sec">timestamped observations</div></div>
+        <div class="metric"><label>Analyzed Search Results</label><div class="val num">${fmt(dataset.analyzedCandidates || 0)}</div><div class="sec">Discover candidates with stored scores</div></div>
+        <div class="metric"><label>Measured Growth Histories</label><div class="val num">${fmt(dataset.growthPairs || 0)}</div><div class="sec">videos with 2+ snapshots</div></div>
       </div>
 
       <div class="grid2">
         <div class="card">
-          <div class="card-h"><h2>Search Topic Signals</h2><p>Based on real Discover searches persisted since Milestone 5.</p></div>
+          <div class="card-h"><h2>Search Topic Signals</h2><p>Based on persisted Discover searches. More different queries = a more useful comparison.</p></div>
           ${topics.length
-            ? topics.map((row) => `<div class="rank"><span>${esc(row.topic)}</span><span>${fmt(row.videos)} videos</span><span>avg opp ${row.avgOpportunity == null ? "—" : Number(row.avgOpportunity).toFixed(1)}</span><span class="outlier">${row.medianOutlier == null ? "—" : Number(row.medianOutlier).toFixed(1) + "× median"}</span></div>`).join("")
-            : `<div class="empty"><p>No persisted search-topic pattern yet. Run a few Discover searches to start building this section.</p></div>`}
+            ? topics.map((row) => `<div class="rank"><span>${esc(row.topic)}</span><span>${fmt(row.videos)} analyzed videos</span><span>avg opp ${row.avgOpportunity == null ? "—" : Number(row.avgOpportunity).toFixed(1)}</span><span class="outlier">${row.medianOutlier == null ? "—" : Number(row.medianOutlier).toFixed(1) + "× median"}</span></div>`).join("") +
+              (topics.length < 3 ? `<div class="meta" style="padding:10px 14px">Only ${topics.length} persisted search topic${topics.length === 1 ? "" : "s"} so far. Try distinct searches such as <b>AI tools</b>, <b>trading journal</b>, <b>copy trading</b>, and <b>build in public</b> to make cross-topic patterns more informative.</div>` : "")
+            : `<div class="empty"><p>No persisted search-topic pattern yet. Run distinct Discover searches such as AI tools, trading journal, copy trading, and build in public.</p></div>`}
         </div>
 
         <div class="card">
           <div class="card-h"><h2>Content Type Patterns</h2><p>Real latest metrics by Short, Long-form, and Livestream cohorts.</p></div>
           ${types.length
-            ? types.map((row) => `<div class="rank"><span>${esc(row.type)}</span><span>${fmt(row.videos)} videos</span><span>median ${fmt(row.medianLatestViews)} views · ${Number(row.medianEngagement || 0).toFixed(2)}% eng</span><span>${row.growthSampleSize ? fmt(row.medianActualGrowthPerHour) + "/h actual" : "growth history pending"}</span></div>`).join("")
+            ? types.map((row) => `<div class="rank"><span>${esc(row.type)}</span><span>${fmt(row.videos)} videos · ${fmt(row.growthSampleSize || 0)} growth histories</span><span>median ${fmt(row.medianLatestViews)} views · ${Number(row.medianEngagement || 0).toFixed(2)}% eng</span><span>${row.growthSampleSize ? "median " + fmt(row.medianActualGrowthPerHour) + "/h · top quartile " + fmt(row.topQuartileActualGrowthPerHour) + "/h" : "growth history pending"}</span></div>
+              ${row.growthSampleSize ? `<div class="meta" style="padding:0 14px 8px">${row.positiveGrowthShare == null ? "—" : Number(row.positiveGrowthShare).toFixed(1) + "%"} of measured histories had positive view growth.</div>` : ""}`).join("")
             : `<div class="empty"><p>No content-type observations yet.</p></div>`}
         </div>
       </div>
 
       <div class="card" style="margin-top:12px">
-        <div class="card-h"><h2>Repeated Title Signals</h2><p>Words and two-word phrases appearing across at least two tracked titles. This is literal title data, not AI interpretation.</p></div>
+        <div class="card-h"><h2>Repeated Title Signals</h2><p>SEO-cleaned literal words and two-word phrases that repeat across at least two different channels. Generic hashtags and one-channel repetition are filtered out.</p></div>
         ${terms.length
-          ? terms.map((row) => `<div class="rank"><span>${esc(row.term)}</span><span>${fmt(row.videos)} titles</span><span></span><span>avg opp ${row.avgOpportunity == null ? "—" : Number(row.avgOpportunity).toFixed(1)}</span></div>`).join("")
-          : `<div class="empty"><p>Not enough repeated title language yet. This section will populate naturally as the research dataset grows.</p></div>`}
+          ? terms.map((row) => `<div class="rank"><span><b>${esc(row.term)}</b></span><span>${fmt(row.videos)} titles · ${fmt(row.channels)} channels</span><span>${row.opportunitySampleSize ? fmt(row.opportunitySampleSize) + " analyzed" : "no scored samples yet"}</span><span>avg opp ${row.avgOpportunity == null ? "—" : Number(row.avgOpportunity).toFixed(1)}</span></div>`).join("")
+          : `<div class="empty"><p>No cross-channel title language has repeated enough yet after SEO/noise filtering.</p></div>`}
       </div>
 
       <div class="card" style="margin-top:12px">
@@ -1057,7 +1059,7 @@
 
       <div class="card" style="margin-top:12px;padding:14px">
         <h2 style="font-size:14px;margin:0 0 6px">How to read this page</h2>
-        <p class="meta" style="margin:0">Patterns become more meaningful as the local database grows. Christina Lab shows empty/pending states rather than inventing conclusions when there is not enough evidence.</p>
+        <p class="meta" style="margin:0">Patterns become more meaningful as the local database grows. Title signals require at least two different channels, growth summaries show both the median and top quartile, and empty/pending states are shown instead of invented conclusions.</p>
       </div>`;
   }
 
