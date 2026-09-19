@@ -154,9 +154,20 @@ a { color: var(--accent); text-decoration: none; }
 }
 .modal-root, .palette-root {
   position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 40; display: grid; place-items: center;
+  box-sizing: border-box;
+}
+.modal-root {
+  padding: 16px;
+  overflow: hidden;
 }
 .modal, .palette {
   background: var(--bg2); border: 1px solid var(--line); border-radius: 10px; width: min(520px, 92vw); padding: 18px;
+}
+.modal {
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 .palette { width: min(480px, 92vw); }
 .palette input { width: 100%; background: var(--surf); border: 1px solid var(--line); border-radius: 6px; padding: 10px; }
