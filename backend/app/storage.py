@@ -248,6 +248,67 @@ class SnapshotStore:
 
                 CREATE INDEX IF NOT EXISTS idx_analyses_topic
                 ON video_analyses(topic, observed_at);
+
+                CREATE TABLE IF NOT EXISTS saved_research (
+                    video_id TEXT PRIMARY KEY,
+                    saved_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    why_saved TEXT NOT NULL DEFAULT '',
+                    adaptation TEXT NOT NULL DEFAULT '',
+                    unique_angle TEXT NOT NULL DEFAULT '',
+                    collection_name TEXT NOT NULL DEFAULT 'General',
+                    FOREIGN KEY(video_id) REFERENCES videos(video_id) ON DELETE CASCADE
+                );
+
+                CREATE TABLE IF NOT EXISTS ideas (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    source_video_id TEXT,
+                    title TEXT NOT NULL,
+                    hook TEXT NOT NULL DEFAULT '',
+                    topic TEXT NOT NULL DEFAULT '',
+                    content_type TEXT NOT NULL DEFAULT 'Long-form',
+                    angle TEXT NOT NULL DEFAULT '',
+                    audience TEXT NOT NULL DEFAULT '',
+                    hypothesis TEXT NOT NULL DEFAULT '',
+                    notes TEXT NOT NULL DEFAULT '',
+                    priority TEXT NOT NULL DEFAULT 'Med',
+                    status TEXT NOT NULL DEFAULT 'Draft',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY(source_video_id) REFERENCES videos(video_id) ON DELETE SET NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_ideas_status
+                ON ideas(status, updated_at);
+
+                CREATE TABLE IF NOT EXISTS experiments (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    idea_id INTEGER NOT NULL,
+                    name TEXT NOT NULL,
+                    topic TEXT NOT NULL DEFAULT '',
+                    format TEXT NOT NULL DEFAULT 'Long-form',
+                    hypothesis TEXT NOT NULL DEFAULT '',
+                    status TEXT NOT NULL DEFAULT 'Draft',
+                    published_at TEXT,
+                    views_24h INTEGER,
+                    views_7d INTEGER,
+                    retention REAL,
+                    subscribers INTEGER,
+                    ctr REAL,
+                    result TEXT NOT NULL DEFAULT '',
+                    decision TEXT NOT NULL DEFAULT 'UNDECIDED',
+                    lesson TEXT NOT NULL DEFAULT '',
+                    next_test TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY(idea_id) REFERENCES ideas(id) ON DELETE CASCADE
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_experiments_idea
+                ON experiments(idea_id, updated_at);
+
+                CREATE INDEX IF NOT EXISTS idx_experiments_decision
+                ON experiments(decision, updated_at);
                 """
             )
 
