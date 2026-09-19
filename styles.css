@@ -6,14 +6,14 @@
  */
 
 :root {
-  --bg: #eaf1fb;
-  --bg2: #f3f7fd;
-  --surf: #f9fbff;
-  --surf2: #edf4ff;
-  --line: #cbd9eb;
-  --text: #182230;
-  --muted: #586b84;
-  --dim: #7589a3;
+  --bg: #f6f9fd;
+  --bg2: #fbfdff;
+  --surf: #ffffff;
+  --surf2: #f7faff;
+  --line: #dce6f1;
+  --text: #1f2937;
+  --muted: #66758a;
+  --dim: #8a97a8;
   --accent: #316fe8;
   --cyan: #3a7f91;
   --go: #16865c;
@@ -203,7 +203,7 @@ body {
 }
 
 .top {
-  background: rgba(234,241,251,.94);
+  background: rgba(246,249,253,.96);
   backdrop-filter: blur(10px);
 }
 
@@ -212,14 +212,14 @@ body {
 }
 
 .nav a:hover {
-  background: #e8f1fb;
+  background: #f3f7fc;
   color: var(--text);
 }
 
 .nav a.active {
-  background: #dceaff;
+  background: #eaf2fb;
   color: #173b72;
-  border: 1px solid #b8cdea;
+  border: 1px solid #d1deed;
 }
 
 .nav-sec,
@@ -240,7 +240,7 @@ body {
 
 .pipe .col,
 .icard {
-  background: #f2f7fd;
+  background: #f8fbff;
 }
 
 .search-mini,
@@ -251,9 +251,9 @@ body {
 .form textarea,
 .form select,
 .palette input {
-  background: #fdfefe;
+  background: #ffffff;
   color: var(--text);
-  border-color: #bfd0e5;
+  border-color: #d5e1ee;
 }
 
 .search-mini::placeholder,
@@ -265,14 +265,14 @@ body {
 }
 
 .btn {
-  background: #f1f6fc;
+  background: #f8fbff;
   color: #253141;
   border-color: #cfd8e4;
 }
 
 .btn:hover {
-  background: #e6f0fb;
-  border-color: #9eb4cf;
+  background: #f8fbff;
+  border-color: #c2d1e2;
 }
 
 .btn.primary {
@@ -286,7 +286,7 @@ body {
 }
 
 .badge {
-  background: #f3f8fe;
+  background: #f8fbff;
   border-color: #d6dee9;
   color: #5b6878;
 }
@@ -333,17 +333,17 @@ body {
 
 .thumb,
 .video-head img {
-  background: #d8e5f5;
+  background: #e8f0f9;
 }
 
 .avatar {
-  background: #d5e4f6;
+  background: #e8f0fa;
 }
 
 .modal,
 .palette,
 .toast {
-  background: #fbfdff;
+  background: #ffffff;
   color: var(--text);
 }
 
@@ -355,12 +355,12 @@ body {
 .opp:hover,
 .rank:hover,
 .table tbody tr:hover {
-  background: #f3f8fe;
+  background: #f8fbff;
 }
 
 .tabs button.active {
-  background: #dceaff;
-  border-color: #b8cdea;
+  background: #eaf2fb;
+  border-color: #d1deed;
   color: #173b72;
 }
 
@@ -377,4 +377,37 @@ body {
   .drawer-bg.show {
     background: rgba(24,34,48,.24);
   }
+}
+
+
+/* Readability pass v4 — near-white surfaces, blue only as an accent */
+.main {
+  background: #f6f9fd;
+}
+
+.page {
+  background: #f6f9fd;
+}
+
+.sidebar {
+  background: #fbfdff;
+}
+
+.metric,
+.card,
+.kcol {
+  background: #ffffff;
+}
+
+.opp,
+.rank,
+.table td,
+.table th {
+  background: transparent;
+}
+
+.opp:hover,
+.rank:hover,
+.table tbody tr:hover {
+  background: #f8fbff;
 }
