@@ -152,3 +152,137 @@ def test_video_classification_separates_short_long_and_livestream():
     assert _video_classification(long_form, 600) == ("Long-form", "none")
     assert _video_classification(live, 600) == ("Livestream", "live")
     assert _video_classification(replay, 600) == ("Livestream", "replay")
+
+
+
+def test_dashboard_summary_uses_real_persisted_analysis(tmp_path):
+    db = tmp_path / "christina_lab.sqlite3"
+    store = SnapshotStore(f"sqlite:///{db}")
+    published = datetime(2026, 9, 19, 10, 0, tzinfo=timezone.utc)
+    observed = datetime(2026, 9, 19, 12, 0, tzinfo=timezone.utc)
+
+    video = _video(
+        video_id="candidate-1",
+        channel_id="channel-a",
+        title="Why AI Tools Fail Beginners",
+        published_at=published,
+        content_type="Long-form",
+        views=5000,
+        likes=400,
+        comments=50,
+        subscribers=20_000,
+    )
+    video["channel"] = "Creator A"
+    video["thumbnail"] = "https://example.com/thumb.jpg"
+    video["youtubeUrl"] = "https://www.youtube.com/watch?v=candidate-1"
+
+    store.record_snapshots([video], observed_at=observed, min_interval_minutes=0)
+    store.record_analyses(
+        [
+            {
+                "id": "candidate-1",
+                "opportunity": 82,
+                "outlier": 4.2,
+                "baseline": 1200,
+                "baselineMethod": "historical-snapshot-median",
+                "baselineSampleSize": 6,
+                "viewsDay": 60_000,
+                "engagement": 9.0,
+                "viewsSub": 0.25,
+            }
+        ],
+        topic="AI tools",
+        observed_at=observed,
+    )
+
+    dashboard = store.dashboard_summary()
+
+    assert dashboard["metrics"]["videosTracked"] == 1
+    assert dashboard["metrics"]["analyzedCandidates"] == 1
+    assert dashboard["metrics"]["topicsTracked"] == 1
+    assert dashboard["topOpportunities"][0]["title"] == "Why AI Tools Fail Beginners"
+    assert dashboard["topOpportunities"][0]["channel"] == "Creator A"
+    assert dashboard["topOpportunities"][0]["opportunity"] == 82
+    assert dashboard["topOpportunities"][0]["topic"] == "AI tools"
+
+
+def test_dashboard_actual_growth_requires_two_snapshots(tmp_path):
+    db = tmp_path / "christina_lab.sqlite3"
+    store = SnapshotStore(f"sqlite:///{db}")
+    published = datetime(2026, 9, 19, 10, 0, tzinfo=timezone.utc)
+
+    video = _video(
+        video_id="growth-1",
+        channel_id="channel-a",
+        title="Growth Test",
+        published_at=published,
+        content_type="Short",
+        views=100,
+    )
+    store.record_snapshots(
+        [video],
+        observed_at=datetime(2026, 9, 19, 11, 0, tzinfo=timezone.utc),
+        min_interval_minutes=0,
+    )
+    video["views"] = 700
+    store.record_snapshots(
+        [video],
+        observed_at=datetime(2026, 9, 19, 14, 0, tzinfo=timezone.utc),
+        min_interval_minutes=0,
+    )
+
+    dashboard = store.dashboard_summary()
+
+    assert dashboard["metrics"]["videosWithMultipleSnapshots"] == 1
+    assert dashboard["fastestActualGrowth"][0]["deltaViews"] == 600
+    assert dashboard["fastestActualGrowth"][0]["actualViewsHour"] == 200.0
+
+
+def test_patterns_summary_comes_from_persisted_topics_titles_and_types(tmp_path):
+    db = tmp_path / "christina_lab.sqlite3"
+    store = SnapshotStore(f"sqlite:///{db}")
+    observed = datetime(2026, 9, 19, 12, 0, tzinfo=timezone.utc)
+
+    titles = [
+        "AI Tools Beginners Should Avoid",
+        "AI Tools Beginners Actually Need",
+        "AI Tools Workflow for Beginners",
+    ]
+    analysis_rows = []
+    for index, title in enumerate(titles, start=1):
+        video_id = f"ai-{index}"
+        video = _video(
+            video_id=video_id,
+            channel_id=f"channel-{index}",
+            title=title,
+            published_at=observed - timedelta(hours=6),
+            content_type="Short",
+            views=1000 * index,
+            likes=100 * index,
+            comments=10 * index,
+        )
+        store.record_snapshots([video], observed_at=observed, min_interval_minutes=0)
+        analysis_rows.append(
+            {
+                "id": video_id,
+                "opportunity": 60 + index * 5,
+                "outlier": 2.0 + index,
+                "baseline": 500,
+                "baselineMethod": "median-age-adjusted-velocity",
+                "baselineSampleSize": 6,
+                "viewsDay": 10_000 * index,
+                "engagement": 5.0,
+                "viewsSub": 0.5,
+            }
+        )
+
+    store.record_analyses(analysis_rows, topic="AI tools", observed_at=observed)
+    patterns = store.patterns_summary()
+
+    assert patterns["dataset"]["videosTracked"] == 3
+    assert patterns["topics"][0]["topic"] == "AI tools"
+    assert patterns["topics"][0]["videos"] == 3
+    assert patterns["contentTypes"][0]["type"] == "Short"
+    assert patterns["contentTypes"][0]["videos"] == 3
+    assert any(signal["term"] == "beginners" for signal in patterns["titleSignals"])
+    assert any(signal["term"] == "tools beginners" for signal in patterns["titleSignals"])
