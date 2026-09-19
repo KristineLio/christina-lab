@@ -1,6 +1,6 @@
 # Christina Lab backend — Age-adjusted YouTube outliers
 
-The Discover workflow uses real public YouTube data, a deeper cleaned channel-history sample, an age-adjusted channel outlier, and an explainable **Opportunity Score v1**.
+The Discover workflow uses real public YouTube data, a deeper cleaned channel-history sample, an age-adjusted channel outlier, and an explainable **Opportunity Score v1.1**.
 
 ## Current flow
 
@@ -117,7 +117,7 @@ For each search result Christina Lab also calculates:
 - expected views at current age
 - age-adjusted outlier score
 
-## Opportunity Score v1
+## Opportunity Score v1.1
 
 Christina Lab now turns the live signals into an explainable 0–100 ranking.
 
@@ -136,18 +136,24 @@ The API returns every component as `opportunityComponents`, so the UI can show e
 
 ### Guardrails
 
-Opportunity Score v1 deliberately prevents a single noisy metric from dominating:
+Opportunity Score v1.1 deliberately prevents a single noisy metric from dominating:
 
 - channels below 100 subscribers can earn at most 4/10 from views/subscriber
 - channels below 1,000 subscribers can earn at most 7/10 from views/subscriber
-- fewer than 100 current views caps Opportunity at 25
-- fewer than 300 current views caps Opportunity at 40
-- fewer than 1,000 current views caps Opportunity at 60
+- low traction uses a continuous confidence multiplier instead of hard caps:
+  - 0 views ≈ 50% confidence
+  - 100 views ≈ 60%
+  - 300 views ≈ 75%
+  - 600 views ≈ 90%
+  - 1,000+ views = 100%
+  - values between these points interpolate smoothly, so 999 → 1,000 views cannot cause a score cliff
 - no stable channel baseline caps Opportunity at 55
 - currently live content receives a 5-point penalty because stream velocity can be temporarily inflated
 - upcoming content is capped at 20 until real post-publish performance exists
 
 The API returns applied rules as `opportunityGuardrails`. These are shown in Analyze instead of hiding score adjustments.
+
+Views/subscriber is also stored and displayed with more precision. Small ratios such as `0.0026×` are shown as roughly `0.003×` and `0.26% of subscribers` instead of being rounded to a misleading `0.00×`.
 
 ### Interpretation
 
