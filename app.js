@@ -5,9 +5,9 @@
  * Dashboard, Discover, Video Analysis, Saved Research, Ideas,
  * Experiments, My Videos, Patterns, Analytics, Watchlists, and Settings.
  *
- * Today it reads demo data from window.CL_DATA (data.js) and keeps most
- * user changes in browser memory. As the backend is built, these in-memory
- * operations will be replaced by API calls while preserving the same UI flow.
+ * Live research, Saved Research, Ideas, Experiments, Dashboard, and Patterns
+ * now use the FastAPI + SQLite backend. Remaining demo-only screens are kept
+ * isolated while later milestones replace them with creator-owned data.
  */
 
 (function () {
@@ -836,7 +836,7 @@
         ${videoImg(v, "thumb")}
         <div>
           <div class="t" style="font-size:18px">${esc(v.title)}</div>
-          <div class="meta">${esc(v.channel)} · ${esc(v.published)} · ${esc(v.duration)} · ${esc(v.type)}${v.liveStatus && v.liveStatus !== "none" ? " · " + esc(v.liveStatus) : ""}</div>
+          <div class="meta">${[v.channel, v.published, v.duration, v.type, v.liveStatus && v.liveStatus !== "none" ? v.liveStatus : ""].filter(Boolean).map(esc).join(" · ")}</div>
           <div class="actions" style="margin-top:12px">
             <a class="btn" href="${esc(v.youtubeUrl)}" target="_blank" rel="noreferrer">Open on YouTube</a>
             <button class="btn" data-act="${state.saved.has(v.id) ? "unsave" : "save"}" data-id="${esc(v.id)}">${state.saved.has(v.id) ? "Saved" : "Save Research"}</button>
