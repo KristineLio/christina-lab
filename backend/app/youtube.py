@@ -290,6 +290,14 @@ class YouTubeClient:
                 baseline_sample_size=int(baseline["baselineSampleSize"] or 0),
                 baseline_scope=str(baseline["baselineScope"]),
                 baseline_method=str(baseline["baselineMethod"]),
+                historical_snapshot_sample_size=int(
+                    baseline.get("historicalSnapshotSampleSize")
+                    or (
+                        baseline["baselineSampleSize"]
+                        if baseline["baselineMethod"] == "historical-snapshot-median"
+                        else 0
+                    )
+                ),
                 live_broadcast_content=snippet.get("liveBroadcastContent", "none"),
             )
 

@@ -489,6 +489,7 @@ def test_provisional_baseline_limits_outlier_confidence():
         baseline_sample_size=12,
         baseline_scope="same-format-snapshots",
         baseline_method="historical-snapshot-median",
+        historical_snapshot_sample_size=12,
         live_broadcast_content="none",
     )
     provisional = calculate_opportunity_score(
@@ -502,6 +503,7 @@ def test_provisional_baseline_limits_outlier_confidence():
         baseline_sample_size=12,
         baseline_scope="same-format",
         baseline_method="median-age-adjusted-velocity",
+        historical_snapshot_sample_size=0,
         live_broadcast_content="none",
     )
 
@@ -520,10 +522,20 @@ def test_provisional_baseline_limits_outlier_confidence():
         for component in provisional["opportunityComponents"]
         if component["key"] == "confidence"
     )
+    historical_confidence = next(
+        component
+        for component in historical["opportunityComponents"]
+        if component["key"] == "confidence"
+    )
 
     assert historical_outlier["score"] == 40
     assert provisional_outlier["score"] == 24
     assert provisional_confidence["score"] <= 2
+    assert "provisional" in provisional_confidence["label"]
+    assert "12 recent videos" in provisional_confidence["label"]
+    assert "0/3 historical same-age samples" in provisional_confidence["label"]
+    assert "historical" in historical_confidence["label"]
+    assert "12 comparable snapshots" in historical_confidence["label"]
     assert provisional["opportunity"] < historical["opportunity"]
     assert any(
         guardrail["key"] == "provisional-baseline"
