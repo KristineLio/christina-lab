@@ -206,3 +206,89 @@ def test_new_video_is_not_penalized_against_older_lifetime_totals():
 
     assert result["baseline"] == 500
     assert result["outlier"] == 1.0
+
+
+
+def test_baseline_ignores_live_and_upcoming_samples():
+    now = datetime(2026, 9, 19, 12, 0, tzinfo=timezone.utc)
+    samples = [
+        {
+            "id": "live",
+            "views": 100_000,
+            "type": "Long-form",
+            "publishedAt": now - timedelta(hours=2),
+            "liveBroadcastContent": "live",
+        },
+        {
+            "id": "upcoming",
+            "views": 500,
+            "type": "Long-form",
+            "publishedAt": now - timedelta(hours=1),
+            "liveBroadcastContent": "upcoming",
+        },
+        {
+            "id": "a",
+            "views": 2400,
+            "type": "Long-form",
+            "publishedAt": now - timedelta(hours=24),
+            "liveBroadcastContent": "none",
+        },
+        {
+            "id": "b",
+            "views": 4800,
+            "type": "Long-form",
+            "publishedAt": now - timedelta(hours=48),
+            "liveBroadcastContent": "none",
+        },
+        {
+            "id": "c",
+            "views": 7200,
+            "type": "Long-form",
+            "publishedAt": now - timedelta(hours=72),
+            "liveBroadcastContent": "none",
+        },
+    ]
+
+    result = calculate_channel_baseline(
+        candidate_id="candidate",
+        candidate_views=500,
+        candidate_type="Long-form",
+        candidate_published_at=now - timedelta(hours=5),
+        samples=samples,
+        now=now,
+    )
+
+    assert result["baselineSampleSize"] == 3
+    assert result["baselineVelocity"] == 100
+    assert result["baseline"] == 500
+    assert result["outlier"] == 1.0
+
+
+def test_baseline_caps_comparison_pool_to_most_recent_usable_samples():
+    now = datetime(2026, 9, 19, 12, 0, tzinfo=timezone.utc)
+    samples = []
+    for index in range(20):
+        hours = 24 + index
+        samples.append(
+            {
+                "id": f"v{index}",
+                "views": hours * 100,
+                "type": "Short",
+                "publishedAt": now - timedelta(hours=hours),
+                "liveBroadcastContent": "none",
+            }
+        )
+
+    result = calculate_channel_baseline(
+        candidate_id="candidate",
+        candidate_views=500,
+        candidate_type="Short",
+        candidate_published_at=now - timedelta(hours=5),
+        samples=samples,
+        max_samples=12,
+        now=now,
+    )
+
+    assert result["baselineSampleSize"] == 12
+    assert result["baselineVelocity"] == 100
+    assert result["outlier"] == 1.0
