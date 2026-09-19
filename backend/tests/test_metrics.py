@@ -323,7 +323,7 @@ def test_opportunity_score_is_explainable_and_bounded():
         10,
         5,
     ]
-    assert result["opportunityScoreVersion"] == "v1.1"
+    assert result["opportunityScoreVersion"] == "v1.2"
 
 
 def test_tiny_channel_breakout_cannot_dominate_on_ratio_alone():
@@ -473,4 +473,59 @@ def test_traction_confidence_has_no_999_to_1000_view_cliff():
     assert not any(
         guardrail["key"] == "traction-confidence"
         for guardrail in at_threshold["opportunityGuardrails"]
+    )
+
+
+
+def test_provisional_baseline_limits_outlier_confidence():
+    historical = calculate_opportunity_score(
+        views=10_000,
+        subscribers=50_000,
+        views_day=100_000,
+        engagement=6.0,
+        views_sub=0.2,
+        age_hours_value=6,
+        outlier=20.0,
+        baseline_sample_size=12,
+        baseline_scope="same-format-snapshots",
+        baseline_method="historical-snapshot-median",
+        live_broadcast_content="none",
+    )
+    provisional = calculate_opportunity_score(
+        views=10_000,
+        subscribers=50_000,
+        views_day=100_000,
+        engagement=6.0,
+        views_sub=0.2,
+        age_hours_value=6,
+        outlier=20.0,
+        baseline_sample_size=12,
+        baseline_scope="same-format",
+        baseline_method="median-age-adjusted-velocity",
+        live_broadcast_content="none",
+    )
+
+    historical_outlier = next(
+        component
+        for component in historical["opportunityComponents"]
+        if component["key"] == "outlier"
+    )
+    provisional_outlier = next(
+        component
+        for component in provisional["opportunityComponents"]
+        if component["key"] == "outlier"
+    )
+    provisional_confidence = next(
+        component
+        for component in provisional["opportunityComponents"]
+        if component["key"] == "confidence"
+    )
+
+    assert historical_outlier["score"] == 40
+    assert provisional_outlier["score"] == 24
+    assert provisional_confidence["score"] <= 2
+    assert provisional["opportunity"] < historical["opportunity"]
+    assert any(
+        guardrail["key"] == "provisional-baseline"
+        for guardrail in provisional["opportunityGuardrails"]
     )

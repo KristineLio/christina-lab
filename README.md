@@ -28,7 +28,7 @@ The VibeFlow frontend and final light analytics theme are merged into `main` and
 
 ### Phase 2 — Backend 🚧
 
-**YouTube Milestones 1–3 implemented:**
+**YouTube Milestones 1–4 implemented:**
 
 - FastAPI backend
 - real YouTube keyword search
@@ -47,16 +47,22 @@ The VibeFlow frontend and final light analytics theme are merged into `main` and
 - gradual traction-confidence weighting instead of hard view-count score cliffs
 - precise views/subscriber display for very small ratios
 - existing Discover + Analyze UI connected to live results
-- insufficient channel history is shown explicitly instead of inventing a score
+- SQLite persistence for real video metric snapshots
+- snapshot history for views / likes / comments over time
+- true same-age historical baselines when at least 3 comparable observations exist
+- provisional baseline clearly labeled and confidence-limited while history accumulates
+- separate Short / regular Long-form / Livestream cohorts
+- livestream replay detection via YouTube live metadata
+- insufficient history is shown explicitly instead of inventing confidence
 
 **Next backend milestone:**
 
-- persistence + periodic snapshots so Christina Lab can build true same-age historical channel baselines
-- later: replace demo Dashboard/Patterns with persisted real data
+- use persisted data to replace the demo Dashboard and Patterns screens
+- add saved research persistence
+- later: automated watchlist snapshot checks with quota-aware scheduling
 
 Later work:
 
-- persistence layer
 - saved research and ideas
 - creator experiment tracking
 - YouTube Analytics integration for owned-channel metrics
