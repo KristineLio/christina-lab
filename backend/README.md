@@ -221,3 +221,68 @@ py -m http.server 5500
 Then use Discover normally. Re-running a search later will add new observations for videos Christina Lab sees again.
 
 The real `.env` and local SQLite database must never be committed.
+
+
+## Milestone 5 — real Dashboard and Patterns
+
+Dashboard and Patterns no longer depend on the frontend's demo dataset.
+
+New persisted derived research table:
+
+```
+video_analyses
+```
+
+Each fresh Discover search stores the latest candidate-level signals:
+
+- search topic
+- Opportunity Score
+- outlier
+- baseline + baseline method
+- 24h run rate
+- engagement
+- views/subscriber
+- analysis timestamp
+
+The existing `videos` records also retain richer display metadata such as channel title and thumbnail.
+
+### Dashboard API
+
+```
+GET /api/dashboard
+```
+
+Returns real persisted:
+
+- videos tracked
+- snapshots stored
+- videos with multiple snapshots
+- analyzed candidates
+- search topics tracked
+- strongest latest Opportunity Scores
+- fastest **actual** growth measured between snapshots
+- Short / Long-form / Livestream dataset mix
+- data-maturity indicators
+
+### Patterns API
+
+```
+GET /api/patterns
+```
+
+Returns real persisted:
+
+- search-topic signals from Discover queries
+- content-type medians
+- repeated words and two-word phrases from tracked titles
+- actual growth leaders from videos with 2+ snapshots
+
+The title pattern layer is intentionally literal and transparent. It does not claim AI-generated hook categories that the database cannot support.
+
+If the dataset is too small for a pattern, the API returns an empty collection and the UI displays a pending state rather than inventing results.
+
+### Important migration behavior
+
+Milestone 5 automatically upgrades an existing Milestone 4 SQLite database by adding display metadata columns and the `video_analyses` table. Existing snapshots are preserved.
+
+Historical searches from before Milestone 5 did not store derived Opportunity analysis rows, so the Dashboard's Opportunity and search-topic sections begin filling after the next fresh Discover searches.

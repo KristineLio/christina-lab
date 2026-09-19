@@ -28,7 +28,7 @@ The VibeFlow frontend and final light analytics theme are merged into `main` and
 
 ### Phase 2 — Backend 🚧
 
-**YouTube Milestones 1–4 implemented:**
+**YouTube Milestones 1–5 implemented:**
 
 - FastAPI backend
 - real YouTube keyword search
@@ -54,11 +54,17 @@ The VibeFlow frontend and final light analytics theme are merged into `main` and
 - separate Short / regular Long-form / Livestream cohorts
 - livestream replay detection via YouTube live metadata
 - insufficient history is shown explicitly instead of inventing confidence
+- real Dashboard backed by SQLite research history
+- persisted Opportunity Score summaries
+- actual measured growth leaders from 2+ snapshots
+- real content-type dataset mix
+- real Patterns page using persisted search topics, repeated title language, content cohorts, and measured growth
+- empty/pending states when the dataset is too small instead of fabricated pattern conclusions
 
 **Next backend milestone:**
 
-- use persisted data to replace the demo Dashboard and Patterns screens
 - add saved research persistence
+- connect Ideas/Experiments to persisted research
 - later: automated watchlist snapshot checks with quota-aware scheduling
 
 Later work:

@@ -84,3 +84,14 @@ async def video_snapshots(video_id: str) -> dict:
         "count": len(snapshots),
         "snapshots": snapshots,
     }
+
+
+
+@app.get("/api/dashboard")
+async def dashboard() -> dict:
+    return snapshot_store.dashboard_summary()
+
+
+@app.get("/api/patterns")
+async def patterns() -> dict:
+    return snapshot_store.patterns_summary()

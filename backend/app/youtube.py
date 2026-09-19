@@ -335,6 +335,12 @@ class YouTubeClient:
                 }
             )
 
+        analyzed_rows = self.snapshot_store.record_analyses(
+            results,
+            topic=query,
+            observed_at=now,
+        )
+
         results.sort(
             key=lambda video: (
                 video["opportunity"],
@@ -351,6 +357,7 @@ class YouTubeClient:
             "snapshotMeta": {
                 **self.snapshot_store.stats(),
                 "insertedThisSearch": inserted_snapshots,
+                "analysesStoredThisSearch": analyzed_rows,
             },
         }
 
@@ -436,10 +443,23 @@ def _video_sample(item: dict) -> dict:
     if published_raw:
         published_at = datetime.fromisoformat(published_raw.replace("Z", "+00:00"))
 
+    thumbnails = snippet.get("thumbnails", {})
+    thumbnail = (
+        thumbnails.get("high", {}).get("url")
+        or thumbnails.get("medium", {}).get("url")
+        or thumbnails.get("default", {}).get("url")
+    )
+
+    video_id = item.get("id")
     return {
-        "id": item.get("id"),
+        "id": video_id,
         "channelId": snippet.get("channelId"),
+        "channel": snippet.get("channelTitle", ""),
         "title": snippet.get("title", "Untitled"),
+        "thumbnail": thumbnail,
+        "youtubeUrl": (
+            f"https://www.youtube.com/watch?v={video_id}" if video_id else None
+        ),
         "views": _to_int(stats.get("viewCount")),
         "likes": _to_int(stats.get("likeCount")),
         "comments": _to_int(stats.get("commentCount")),
