@@ -1043,10 +1043,10 @@
       </div>
 
       <div class="card" style="margin-top:12px">
-        <div class="card-h"><h2>Repeated Title Signals</h2><p>SEO-cleaned literal words and two-word phrases that repeat across at least two different channels. Generic hashtags and one-channel repetition are filtered out.</p></div>
+        <div class="card-h"><h2>Repeated Title Signals</h2><p>Phrase-first title patterns repeated across at least two different channels. Common words, generic category terms, location/SEO noise, and one-channel repetition are filtered out.</p></div>
         ${terms.length
-          ? terms.map((row) => `<div class="rank"><span><b>${esc(row.term)}</b></span><span>${fmt(row.videos)} titles · ${fmt(row.channels)} channels</span><span>${row.opportunitySampleSize ? fmt(row.opportunitySampleSize) + " analyzed" : "no scored samples yet"}</span><span>avg opp ${row.avgOpportunity == null ? "—" : Number(row.avgOpportunity).toFixed(1)}</span></div>`).join("")
-          : `<div class="empty"><p>No cross-channel title language has repeated enough yet after SEO/noise filtering.</p></div>`}
+          ? terms.map((row) => `<div class="rank"><span><b>${esc(row.term)}</b> <span class="badge">${row.termType === "phrase" ? "Phrase" : "Specific word"}</span></span><span>${fmt(row.videos)} titles · ${fmt(row.channels)} channels</span><span>${row.opportunitySampleSize ? fmt(row.opportunitySampleSize) + " analyzed" : "no scored samples yet"}</span><span>avg opp ${row.avgOpportunity == null ? "—" : Number(row.avgOpportunity).toFixed(1)}</span></div>`).join("")
+          : `<div class="empty"><p>No sufficiently specific cross-channel title pattern has repeated yet.</p></div>`}
       </div>
 
       <div class="card" style="margin-top:12px">
@@ -1059,7 +1059,7 @@
 
       <div class="card" style="margin-top:12px;padding:14px">
         <h2 style="font-size:14px;margin:0 0 6px">How to read this page</h2>
-        <p class="meta" style="margin:0">Patterns become more meaningful as the local database grows. Title signals require at least two different channels, growth summaries show both the median and top quartile, and empty/pending states are shown instead of invented conclusions.</p>
+        <p class="meta" style="margin:0">Patterns become more meaningful as the local database grows. Multi-word phrases rank ahead of single words, common language and SEO/location noise are suppressed, title signals still require at least two different channels, and growth summaries show both the median and top quartile.</p>
       </div>`;
   }
 
