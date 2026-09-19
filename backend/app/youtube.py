@@ -7,6 +7,7 @@ import httpx
 
 from .metrics import (
     calculate_channel_baseline,
+    calculate_opportunity_score,
     calculate_video_metrics,
     format_duration,
     human_age,
@@ -218,6 +219,19 @@ class YouTubeClient:
                 or thumbnails.get("default", {}).get("url")
             )
 
+            opportunity = calculate_opportunity_score(
+                views=views,
+                subscribers=subscribers,
+                views_day=float(derived["viewsDay"] or 0),
+                engagement=float(derived["engagement"] or 0),
+                views_sub=derived["viewsSub"],
+                age_hours_value=float(derived["ageHours"] or 0),
+                outlier=baseline["outlier"],
+                baseline_sample_size=int(baseline["baselineSampleSize"] or 0),
+                baseline_scope=str(baseline["baselineScope"]),
+                live_broadcast_content=snippet.get("liveBroadcastContent", "none"),
+            )
+
             video_id = item["id"]
             results.append(
                 {
@@ -239,18 +253,19 @@ class YouTubeClient:
                     "comments": comments,
                     **derived,
                     **baseline,
+                    **opportunity,
                     "topic": query,
                     "thumbnail": thumbnail,
                     "thumbAlt": f"YouTube thumbnail for {snippet.get('title', 'video')}",
                     "youtubeUrl": f"https://www.youtube.com/watch?v={video_id}",
-                    "opportunity": None,
+                    "liveBroadcastContent": snippet.get("liveBroadcastContent", "none"),
                     "momentum": None,
                 }
             )
 
         results.sort(
             key=lambda video: (
-                video["outlier"] is not None,
+                video["opportunity"],
                 video["outlier"] if video["outlier"] is not None else -1,
                 video["viewsDay"],
             ),

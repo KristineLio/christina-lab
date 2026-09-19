@@ -23,7 +23,7 @@
     route: location.hash.slice(1) || "/",
     query: "",
     searched: false,
-    filters: { time: "7d", type: "All", minViews: 0, sort: "out", topic: "All" },
+    filters: { time: "7d", type: "All", minViews: 0, sort: "opp", topic: "All" },
     saved: new Set(D.savedSeed),
     ideas: D.ideas.map((x) => ({ ...x })),
     experiments: D.experiments.map((x) => ({ ...x })),
@@ -297,10 +297,7 @@
       if (s === "views") return value(b, "views", 0) - value(a, "views", 0);
       if (s === "vpd") return value(b, "viewsDay", 0) - value(a, "viewsDay", 0);
       if (s === "eng") return value(b, "engagement", 0) - value(a, "engagement", 0);
-      // Opportunity scoring is still a later milestone. Until then, use the
-      // real channel outlier score as the strongest available ranking signal.
-      return value(b, "opportunity", value(b, "outlier", value(b, "viewsDay", 0))) -
-        value(a, "opportunity", value(a, "outlier", value(a, "viewsDay", 0)));
+      return value(b, "opportunity", -1) - value(a, "opportunity", -1);
     });
     return list;
   }
@@ -430,6 +427,7 @@
           ? `<span class="meta">Need 3 recent uploads</span>`
           : `<span class="outlier num tip" title="Average views/hour for this video divided by the median average views/hour of recent channel uploads.">${v.outlier.toFixed(1)}×</span>
              <span class="badge ${level(v.outlier)}">${levelLabel(v.outlier)}</span>`}
+        ${Number.isFinite(v.opportunity) ? `<span class="num" title="Opportunity Score">${v.opportunity}/100</span>` : ""}
         <button class="btn" data-act="${saved ? "unsave" : "save"}" data-id="${v.id}">${saved ? "Saved" : "Save"}</button>
         <button class="btn primary" data-act="analyze" data-id="${v.id}">Analyze</button>
       </div>
@@ -466,8 +464,8 @@
           .map((t) => `<option ${state.filters.topic === t ? "selected" : ""}>${esc(t)}</option>`)
           .join("")}</select>
         <select id="fsort">
+          <option value="opp" ${state.filters.sort === "opp" ? "selected" : ""}>Best Opportunities</option>
           <option value="out" ${state.filters.sort === "out" ? "selected" : ""}>Outlier Score</option>
-          <option value="opp" ${state.filters.sort === "opp" ? "selected" : ""}>Best Opportunities (later)</option>
           <option value="views" ${state.filters.sort === "views" ? "selected" : ""}>Views</option>
           <option value="vpd" ${state.filters.sort === "vpd" ? "selected" : ""}>24h Run Rate</option>
           <option value="eng" ${state.filters.sort === "eng" ? "selected" : ""}>Engagement</option>
@@ -475,7 +473,7 @@
         <button class="btn ghost" id="resetF">Reset filters</button>
       </div>
       ${state.searched && !state.loading && !state.apiError
-        ? `<div class="meta" style="margin:-4px 0 12px">Live YouTube Data · Age-adjusted outlier compares this video's average view velocity with the channel's recent median velocity. Opportunity score is still a later milestone.</div>`
+        ? `<div class="meta" style="margin:-4px 0 12px">Live YouTube Data · Opportunity Score v1 combines age-adjusted outlier, 24h run rate, engagement, views/subscriber, freshness, and baseline confidence with explicit guardrails.</div>`
         : ""}
       ${
         state.loading
@@ -508,7 +506,7 @@
                       ? `<span class="meta">Need more channel history</span>`
                       : `<span class="outlier num tip" title="Average views/hour for this video divided by the median average views/hour of recent channel uploads.">${v.outlier.toFixed(1)}×</span>
                          <div class="meta">expected ~${fmt(v.baseline)} by ${esc(v.age)} · ${v.baselineSampleSize} ${v.baselineScope === "same-format" ? "same-format" : "recent"} videos</div>`}</td>
-                    <td class="num">${v.opportunity == null ? "—" : v.opportunity + "/100"}</td>
+                    <td class="num tip" title="Explainable Opportunity Score v1. Open Analyze to see every component and guardrail.">${v.opportunity == null ? "—" : "<b>" + v.opportunity + "/100</b>"}</td>
                     <td class="actions">
                       <button class="btn" data-act="${state.saved.has(v.id) ? "unsave" : "save"}" data-id="${esc(v.id)}">${state.saved.has(v.id) ? "Saved" : "Save"}</button>
                       <button class="btn" data-act="analyze" data-id="${esc(v.id)}">Analyze</button>
@@ -533,6 +531,8 @@
         ? "recent uploads across formats"
         : "recent uploads";
     const baselineReady = v.outlier != null && v.baseline != null;
+    const components = Array.isArray(v.opportunityComponents) ? v.opportunityComponents : [];
+    const guardrails = Array.isArray(v.opportunityGuardrails) ? v.opportunityGuardrails : [];
 
     return `
       <div class="video-head">
@@ -547,16 +547,40 @@
           </div>
         </div>
       </div>
+
       <div class="metrics">
+        <div class="metric"><label>Opportunity Score</label><div class="val num">${v.opportunity == null ? "—" : v.opportunity + "/100"}</div><div class="sec">Explainable v1 score</div></div>
         <div class="metric"><label>Views</label><div class="val num">${Number(v.views || 0).toLocaleString()}</div></div>
-        <div class="metric"><label>24h Run Rate</label><div class="val num">${fmt(v.viewsDay)}</div></div>
+        <div class="metric"><label class="tip" title="Current average views/hour × 24. This is an extrapolated pace, not actual views received in 24 hours.">24h Run Rate</label><div class="val num">${fmt(v.viewsDay)}</div></div>
         <div class="metric"><label>Engagement Rate</label><div class="val num">${Number(v.engagement || 0).toFixed(2)}%</div></div>
         <div class="metric"><label>Views / Subscriber</label><div class="val num">${ratioLabel(v.viewsSub)}</div></div>
         <div class="metric"><label class="tip" title="Average views/hour for this video divided by the median average views/hour of recent channel uploads.">Age-adjusted Outlier</label><div class="val num outlier">${baselineReady ? v.outlier.toFixed(1) + "×" : "—"}</div></div>
         <div class="metric"><label>Expected Views at This Age</label><div class="val num">${baselineReady ? fmt(v.baseline) : "—"}</div><div class="sec">${baselineReady ? "median " + fmt(v.baselineVelocity) + "/hour · " + v.baselineSampleSize + " " + baselineScope : "Need at least 3 usable recent uploads"}</div></div>
       </div>
-      <div class="card why">
-        <h2 style="margin:0 0 8px;font-size:14px">Why this is interesting</h2>
+
+      <div class="card" style="margin-top:12px;padding:14px">
+        <h2 style="margin:0 0 4px;font-size:14px">Why Opportunity = ${v.opportunity == null ? "—" : v.opportunity + "/100"}</h2>
+        <p class="meta" style="margin-top:0">No hidden AI judgment: these points come directly from the signals below. Component points total ${v.opportunityRaw ?? "—"} before guardrails.</p>
+        <div style="display:grid;gap:6px;margin-top:10px">
+          ${components.length
+            ? components.map((component) => `
+                <div class="rank" style="grid-template-columns:72px 1fr auto">
+                  <span class="num">+${component.score}/${component.max}</span>
+                  <span>${esc(component.label)}</span>
+                  <span class="meta">${esc(component.key)}</span>
+                </div>`).join("")
+            : `<div class="meta">Opportunity breakdown unavailable.</div>`}
+        </div>
+        <div style="margin-top:12px">
+          <div class="sec">GUARDRAILS</div>
+          ${guardrails.length
+            ? `<ul style="margin-bottom:0">${guardrails.map((g) => `<li>${esc(g.label)}</li>`).join("")}</ul>`
+            : `<p class="meta" style="margin-bottom:0">No guardrails changed this score.</p>`}
+        </div>
+      </div>
+
+      <div class="card why" style="margin-top:12px">
+        <h2 style="margin:0 0 8px;font-size:14px">Signal details</h2>
         <ul>
           ${baselineReady
             ? `<li><b>${v.outlier.toFixed(1)}× age-adjusted outlier:</b> ${fmt(v.views)} current views vs ~${fmt(v.baseline)} expected by ${esc(v.age)} from the channel's recent median view velocity.</li>`
@@ -565,8 +589,9 @@
           <li>${Number(v.engagement || 0).toFixed(2)}% public engagement from likes + comments relative to views.</li>
           <li>${v.viewsSub == null ? "Subscriber count is hidden or unavailable." : ratioLabel(v.viewsSub) + " views relative to current channel subscribers."}</li>
         </ul>
-        <p class="meta" style="margin-bottom:0">This is an age-adjusted Christina Lab estimate from current public YouTube totals. It is not an official YouTube metric and it is not the same as having historical snapshots of each older video at exactly the same age.</p>
+        <p class="meta" style="margin-bottom:0">Opportunity Score v1 and the age-adjusted outlier are Christina Lab derived metrics from public YouTube data, not official YouTube metrics.</p>
       </div>
+
       <div class="card" style="margin-top:12px;padding:14px">
         <h2 style="margin:0 0 10px;font-size:14px">Creator notes</h2>
         <form class="form" id="noteForm" data-vid="${esc(v.id)}">
@@ -576,10 +601,11 @@
           <button class="btn primary" type="submit">Save note</button>
         </form>
       </div>
+
       <div class="card" style="margin-top:12px">
         <div class="card-h"><h2>Related live results</h2><p>Other videos returned for the same search.</p></div>
         ${related.length
-          ? related.map((r) => `<div class="opp">${videoImg(r)}<div><div class="t">${esc(r.title)}</div><div class="meta">${esc(r.channel)} · ${fmt(r.viewsDay)}/day</div></div><span class="outlier num">${r.outlier == null ? "—" : r.outlier.toFixed(1) + "×"}</span></div>`).join("")
+          ? related.map((r) => `<div class="opp">${videoImg(r)}<div><div class="t">${esc(r.title)}</div><div class="meta">${esc(r.channel)} · ${fmt(r.viewsDay)} / 24h pace</div></div><span class="num">${r.opportunity == null ? "—" : r.opportunity + "/100"}</span></div>`).join("")
           : `<div class="empty"><p>No related live results in this search set.</p></div>`}
       </div>`;
   }
@@ -1055,7 +1081,7 @@
     const reset = document.getElementById("resetF");
     if (reset)
       reset.onclick = () => {
-        state.filters = { time: "7d", type: "All", minViews: 0, sort: "out", topic: "All" };
+        state.filters = { time: "7d", type: "All", minViews: 0, sort: "opp", topic: "All" };
         state.query = "";
         state.searched = false;
         state.liveVideos = [];

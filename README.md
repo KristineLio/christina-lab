@@ -28,7 +28,7 @@ The VibeFlow frontend and final light analytics theme are merged into `main` and
 
 ### Phase 2 — Backend 🚧
 
-**YouTube Milestones 1–2 implemented:**
+**YouTube Milestones 1–3 implemented:**
 
 - FastAPI backend
 - real YouTube keyword search
@@ -41,13 +41,16 @@ The VibeFlow frontend and final light analytics theme are merged into `main` and
 - age-adjusted median channel velocity baseline from up to 12 usable comparison videos
 - expected views at the candidate's current age
 - real age-adjusted outlier multiplier
+- explainable Opportunity Score v1 (0–100)
+- score breakdown across outlier, velocity, engagement, views/subscriber, freshness, and baseline confidence
+- guardrails for tiny channels, weak traction, missing baselines, live content, and upcoming content
 - existing Discover + Analyze UI connected to live results
 - insufficient channel history is shown explicitly instead of inventing a score
 
 **Next backend milestone:**
 
-- explainable opportunity ranking that combines age-adjusted outlier strength, velocity, engagement, recency, and useful guardrails
-- later: persisted historical snapshots for true same-age channel comparisons
+- persistence + periodic snapshots so Christina Lab can build true same-age historical channel baselines
+- later: replace demo Dashboard/Patterns with persisted real data
 
 Later work:
 
@@ -63,10 +66,11 @@ Later work:
 3. Calculate understandable signals such as:
    - video age
    - views/hour
-   - views/day
+   - 24h run rate
    - engagement rate
    - views/subscriber ratio
    - performance versus channel baseline
+   - explainable Opportunity Score and guardrails
 4. Identify promising outliers.
 5. Save research.
 6. Turn research into a content idea and hypothesis.
