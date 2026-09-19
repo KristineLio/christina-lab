@@ -20,7 +20,8 @@ class YouTubeAPIError(RuntimeError):
 
 class YouTubeClient:
     BASE_URL = "https://www.googleapis.com/youtube/v3"
-    BASELINE_UPLOADS_PER_CHANNEL = 12
+    BASELINE_SCAN_UPLOADS_PER_CHANNEL = 30
+    BASELINE_MAX_SAMPLES = 12
     BASELINE_MIN_SAMPLE = 3
     PLAYLIST_CONCURRENCY = 6
 
@@ -155,7 +156,7 @@ class YouTubeClient:
                 payload = await self._get(
                     "videos",
                     {
-                        "part": "statistics,contentDetails",
+                        "part": "snippet,statistics,contentDetails",
                         "id": ",".join(chunk),
                         "maxResults": len(chunk),
                     },
@@ -206,6 +207,7 @@ class YouTubeClient:
                 candidate_published_at=published_at,
                 samples=recent_samples,
                 min_samples=self.BASELINE_MIN_SAMPLE,
+                max_samples=self.BASELINE_MAX_SAMPLES,
                 now=now,
             )
 
@@ -276,9 +278,9 @@ class YouTubeClient:
                     {
                         "part": "contentDetails",
                         "playlistId": playlist_id,
-                        # Request one extra so the candidate can be excluded
-                        # while still leaving roughly 12 comparison uploads.
-                        "maxResults": min(self.BASELINE_UPLOADS_PER_CHANNEL + 1, 50),
+                        # Scan deeper than the final baseline pool because
+                        # live/upcoming/zero-view/unusable uploads are filtered out.
+                        "maxResults": min(self.BASELINE_SCAN_UPLOADS_PER_CHANNEL + 1, 50),
                     },
                     client=client,
                 )
@@ -303,9 +305,11 @@ class YouTubeClient:
     def _baseline_meta(self) -> dict:
         return {
             "method": "median-age-adjusted-velocity",
-            "recentUploadsPerChannel": self.BASELINE_UPLOADS_PER_CHANNEL,
+            "scannedUploadsPerChannel": self.BASELINE_SCAN_UPLOADS_PER_CHANNEL,
+            "maximumBaselineSamples": self.BASELINE_MAX_SAMPLES,
             "minimumSampleSize": self.BASELINE_MIN_SAMPLE,
             "formatPreference": "same-format-then-all-formats",
+            "excludedLiveStates": ["live", "upcoming"],
         }
 
 
@@ -329,6 +333,7 @@ def _video_sample(item: dict, *, now: datetime) -> dict:
         "views": _to_int(stats.get("viewCount")),
         "type": _video_type(duration_seconds),
         "publishedAt": published_at,
+        "liveBroadcastContent": snippet.get("liveBroadcastContent", "none"),
     }
 
 
