@@ -1,6 +1,6 @@
 # Christina Lab backend — Age-adjusted YouTube outliers
 
-The Discover workflow uses real public YouTube data and computes an explainable **age-adjusted channel outlier score**.
+The Discover workflow uses real public YouTube data, a deeper cleaned channel-history sample, and an explainable **age-adjusted channel outlier score**.
 
 ## Current flow
 
@@ -92,15 +92,17 @@ which is the stronger long-term method.
 
 For each candidate video:
 
-1. Fetch up to 12 recent public uploads from the channel.
+1. Scan up to 30 recent public uploads from the channel.
 2. Exclude the candidate itself.
-3. Prefer at least 3 recent uploads with the same coarse format:
+3. Exclude live and upcoming videos, zero-view items, and samples missing usable publish timing.
+4. Prefer at least 3 recent uploads with the same coarse format:
    - `Short` = duration <= 3 minutes
    - `Long-form` = duration > 3 minutes
-4. If fewer than 3 same-format uploads exist, fall back to all recent usable uploads.
-5. Calculate the median average views/hour.
-6. Project that velocity to the candidate's current age.
-7. Compare candidate velocity with that median velocity.
+5. If fewer than 3 same-format uploads exist, fall back to all recent usable uploads.
+6. Use up to the 12 most recent usable comparison videos.
+7. Calculate the median average views/hour.
+8. Project that velocity to the candidate's current age.
+9. Compare candidate velocity with that median velocity.
 
 If fewer than 3 usable recent uploads exist, Christina Lab shows no outlier score instead of inventing one.
 
@@ -109,7 +111,7 @@ If fewer than 3 usable recent uploads exist, Christina Lab shows no outlier scor
 For each search result Christina Lab also calculates:
 
 - views/hour
-- views/day
+- 24h run rate = current average views/hour × 24 (an extrapolated pace, not actual 24-hour views)
 - public engagement rate = (likes + comments) / views
 - views/subscriber ratio
 - expected views at current age

@@ -422,7 +422,7 @@
       ${videoImg(v)}
       <div>
         <div class="t">${esc(v.title)}</div>
-        <div class="meta">${esc(v.channel)} · ${esc(v.age)} · ${fmt(v.views)} views · <span class="tip" title="Current views divided by video age.">${fmt(v.viewsDay)}/day</span> ·
+        <div class="meta">${esc(v.channel)} · ${esc(v.age)} · ${fmt(v.views)} views · <span class="tip" title="Current average views/hour × 24. This is an extrapolated pace, not actual views received in 24 hours.">${fmt(v.viewsDay)} / 24h pace</span> ·
           <span class="tip" title="Likes + comments relative to views.">${Number(v.engagement || 0).toFixed(2)}% eng</span> · ${esc(v.topic)} · ${esc(v.type)}</div>
       </div>
       <div class="actions">
@@ -469,7 +469,7 @@
           <option value="out" ${state.filters.sort === "out" ? "selected" : ""}>Outlier Score</option>
           <option value="opp" ${state.filters.sort === "opp" ? "selected" : ""}>Best Opportunities (later)</option>
           <option value="views" ${state.filters.sort === "views" ? "selected" : ""}>Views</option>
-          <option value="vpd" ${state.filters.sort === "vpd" ? "selected" : ""}>Views / Day</option>
+          <option value="vpd" ${state.filters.sort === "vpd" ? "selected" : ""}>24h Run Rate</option>
           <option value="eng" ${state.filters.sort === "eng" ? "selected" : ""}>Engagement</option>
         </select>
         <button class="btn ghost" id="resetF">Reset filters</button>
@@ -493,7 +493,7 @@
           : list.length === 0
           ? `<div class="empty"><h3>No YouTube videos found for this search.</h3><p>Try a broader keyword or longer time range.</p></div>`
           : `<div class="card desk-only"><table class="table">
-              <thead><tr><th></th><th>Video</th><th>Age</th><th>Views</th><th>Views/day</th><th>V/sub</th><th>Eng</th><th>Outlier</th><th>Opp</th><th></th></tr></thead>
+              <thead><tr><th></th><th>Video</th><th>Age</th><th>Views</th><th>24h run rate</th><th>V/sub</th><th>Eng</th><th>Outlier</th><th>Opp</th><th></th></tr></thead>
               <tbody>${list
                 .map(
                   (v) => `<tr>
@@ -501,7 +501,7 @@
                     <td><div class="t">${esc(v.title)}</div><div class="meta">${esc(v.channel)} · ${fmt(v.subs)} subs · ${esc(v.duration)} · ${esc(v.topic)}</div></td>
                     <td>${esc(v.age)}</td>
                     <td class="num">${fmt(v.views)}</td>
-                    <td class="num tip" title="Current views divided by video age.">${fmt(v.viewsDay)}</td>
+                    <td class="num tip" title="Current average views/hour × 24. This is an extrapolated pace, not actual views received in 24 hours.">${fmt(v.viewsDay)}</td>
                     <td class="num">${ratioLabel(v.viewsSub)}</td>
                     <td class="num">${Number(v.engagement || 0).toFixed(2)}%</td>
                     <td>${v.outlier == null
@@ -549,7 +549,7 @@
       </div>
       <div class="metrics">
         <div class="metric"><label>Views</label><div class="val num">${Number(v.views || 0).toLocaleString()}</div></div>
-        <div class="metric"><label>Views / Day</label><div class="val num">${fmt(v.viewsDay)}</div></div>
+        <div class="metric"><label>24h Run Rate</label><div class="val num">${fmt(v.viewsDay)}</div></div>
         <div class="metric"><label>Engagement Rate</label><div class="val num">${Number(v.engagement || 0).toFixed(2)}%</div></div>
         <div class="metric"><label>Views / Subscriber</label><div class="val num">${ratioLabel(v.viewsSub)}</div></div>
         <div class="metric"><label class="tip" title="Average views/hour for this video divided by the median average views/hour of recent channel uploads.">Age-adjusted Outlier</label><div class="val num outlier">${baselineReady ? v.outlier.toFixed(1) + "×" : "—"}</div></div>
@@ -561,7 +561,7 @@
           ${baselineReady
             ? `<li><b>${v.outlier.toFixed(1)}× age-adjusted outlier:</b> ${fmt(v.views)} current views vs ~${fmt(v.baseline)} expected by ${esc(v.age)} from the channel's recent median view velocity.</li>`
             : `<li>There is not enough usable recent channel history to calculate a stable median baseline yet.</li>`}
-          <li>${fmt(v.viewsDay)} estimated views/day based on current age.</li>
+          <li>${fmt(v.viewsDay)} projected 24h run rate from the video's current average pace; this is not actual 24-hour views.</li>
           <li>${Number(v.engagement || 0).toFixed(2)}% public engagement from likes + comments relative to views.</li>
           <li>${v.viewsSub == null ? "Subscriber count is hidden or unavailable." : ratioLabel(v.viewsSub) + " views relative to current channel subscribers."}</li>
         </ul>
@@ -604,7 +604,7 @@
       </div>
       <div class="metrics">
         <div class="metric"><label>Views</label><div class="val num">${v.views.toLocaleString()}</div></div>
-        <div class="metric"><label class="tip" title="Current views divided by video age.">Views / Day</label><div class="val num">${fmt(v.viewsDay)}</div></div>
+        <div class="metric"><label class="tip" title="Current average views/hour × 24. This is an extrapolated pace, not actual views received in 24 hours.">24h Run Rate</label><div class="val num">${fmt(v.viewsDay)}</div></div>
         <div class="metric"><label class="tip" title="Likes + comments relative to views.">Engagement Rate</label><div class="val num">${v.engagement}%</div></div>
         <div class="metric"><label>Views / Subscriber</label><div class="val num">${v.viewsSub}×</div></div>
         <div class="metric"><label class="tip" title="Performance relative to the channel's typical recent video.">Outlier Score</label><div class="val num outlier">${v.outlier == null ? "Baseline pending" : v.outlier.toFixed(1) + "×"}</div></div>
