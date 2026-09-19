@@ -13,6 +13,12 @@
 (function () {
   const D = window.CL_DATA;
   const $ = (id) => document.getElementById(id);
+  const API_BASE =
+    window.CL_API_BASE ||
+    ((location.hostname === "localhost" || location.hostname === "127.0.0.1") && location.port !== "8000"
+      ? "http://127.0.0.1:8000"
+      : "");
+
   const state = {
     route: location.hash.slice(1) || "/",
     query: "",
@@ -29,6 +35,8 @@
     error: false,
     connected: false,
     niches: "trading, AI tools, build in public",
+    liveVideos: [],
+    apiError: "",
   };
 
   function fmt(n) {
@@ -36,6 +44,33 @@
     if (n >= 1e6) return (n / 1e6).toFixed(1) + "M";
     if (n >= 1e3) return (n / 1e3).toFixed(n >= 1e4 ? 0 : 1) + "K";
     return String(n);
+  }
+
+  function esc(value) {
+    return String(value ?? "").replace(/[&<>"']/g, (char) => ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#39;",
+    })[char]);
+  }
+
+  function allKnownVideos() {
+    const liveIds = new Set(state.liveVideos.map((v) => v.id));
+    return [...state.liveVideos, ...D.videos.filter((v) => !liveIds.has(v.id))];
+  }
+
+  function videoById(id) {
+    return allKnownVideos().find((v) => v.id === id);
+  }
+
+  function ratioLabel(value) {
+    return value == null ? "—" : value.toFixed(2) + "×";
+  }
+
+  function outlierLabel(v) {
+    return v.outlier == null ? "Baseline pending" : v.outlier.toFixed(1) + "×";
   }
   function level(x) {
     if (x >= 8) return "extreme";
@@ -53,8 +88,12 @@
     clearTimeout(toast._id);
     toast._id = setTimeout(() => (t.hidden = true), 2200);
   }
-  function img(alt, cls) {
-    return `<img class="${cls || "thumb"}" src="thumb.jpg" alt="${alt}" />`;
+  function img(alt, cls, src) {
+    return `<img class="${cls || "thumb"}" src="${esc(src || "thumb.jpg")}" alt="${esc(alt)}" />`;
+  }
+
+  function videoImg(v, cls) {
+    return img(v.thumbAlt, cls, v.thumbnail);
   }
   function icon(d) {
     return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">${d}</svg>`;
@@ -125,7 +164,7 @@
     render();
   }
   function ideaFrom(vid) {
-    const v = D.videos.find((x) => x.id === vid);
+    const v = videoById(vid);
     openIdeaModal(v);
   }
 
@@ -135,9 +174,9 @@
     m.innerHTML = `<div class="modal">
       <h2 style="margin:0 0 12px;font-size:16px">Create idea</h2>
       <form class="form" id="ideaForm">
-        <label>Working title <input name="title" required value="${src ? "Why " + src.title.replace(/^Why /, "") : ""}" /></label>
+        <label>Working title <input name="title" required value="${src ? esc("Why " + src.title.replace(/^Why /, "")) : ""}" /></label>
         <label>Hook <input name="hook" placeholder="The first line viewers hear" /></label>
-        <label>Topic <input name="topic" value="${src ? src.topic : ""}" /></label>
+        <label>Topic <input name="topic" value="${src ? esc(src.topic) : ""}" /></label>
         <label>Content type <select name="type"><option>Short</option><option>Long-form</option></select></label>
         <label>Angle <input name="angle" /></label>
         <label>Audience <input name="audience" /></label>
@@ -231,7 +270,7 @@
   }
 
   function filteredVideos() {
-    let list = D.videos.slice();
+    let list = (state.searched ? state.liveVideos : D.videos).slice();
     const q = state.query.trim().toLowerCase();
     if (q) {
       list = list.filter(
@@ -241,18 +280,68 @@
           v.channel.toLowerCase().includes(q)
       );
     }
-    if (state.filters.type !== "All") list = list.filter((v) => v.type === (state.filters.type === "Shorts" ? "Short" : "Long-form"));
+    if (state.filters.type !== "All") {
+      list = list.filter((v) => v.type === (state.filters.type === "Shorts" ? "Short" : "Long-form"));
+    }
     if (state.filters.topic !== "All") list = list.filter((v) => v.topic === state.filters.topic);
     list = list.filter((v) => v.views >= (+state.filters.minViews || 0));
+
+    const value = (item, key, fallback = -Infinity) => {
+      const n = item[key];
+      return Number.isFinite(n) ? n : fallback;
+    };
+
     const s = state.filters.sort;
     list.sort((a, b) => {
-      if (s === "out") return b.outlier - a.outlier;
-      if (s === "views") return b.views - a.views;
-      if (s === "vpd") return b.viewsDay - a.viewsDay;
-      if (s === "eng") return b.engagement - a.engagement;
-      return b.opportunity - a.opportunity;
+      if (s === "out") return value(b, "outlier") - value(a, "outlier");
+      if (s === "views") return value(b, "views", 0) - value(a, "views", 0);
+      if (s === "vpd") return value(b, "viewsDay", 0) - value(a, "viewsDay", 0);
+      if (s === "eng") return value(b, "engagement", 0) - value(a, "engagement", 0);
+      // Opportunity scoring arrives in Milestone 2. Until then, live results
+      // fall back to views/day rather than inventing an opportunity score.
+      return value(b, "opportunity", value(b, "viewsDay", 0)) - value(a, "opportunity", value(a, "viewsDay", 0));
     });
     return list;
+  }
+
+  async function runDiscoverSearch(query) {
+    const clean = String(query || "").trim();
+    if (!clean) return;
+
+    const days = { "24h": 1, "3d": 3, "7d": 7, "30d": 30 }[state.filters.time] || 7;
+    state.query = clean;
+    state.searched = true;
+    state.loading = true;
+    state.apiError = "";
+    render();
+
+    try {
+      const url =
+        API_BASE +
+        "/api/discover?q=" +
+        encodeURIComponent(clean) +
+        "&published_after_days=" +
+        days +
+        "&max_results=25";
+      const response = await fetch(url);
+      if (!response.ok) {
+        let message = "The YouTube backend could not load this search.";
+        try {
+          const payload = await response.json();
+          if (payload.detail) message = payload.detail;
+        } catch (_) {}
+        throw new Error(message);
+      }
+
+      const payload = await response.json();
+      state.liveVideos = Array.isArray(payload.videos) ? payload.videos : [];
+    } catch (error) {
+      state.liveVideos = [];
+      state.apiError = error?.message || "The YouTube backend could not load this search.";
+    } finally {
+      state.loading = false;
+      render();
+    }
   }
 
   function dash() {
@@ -295,7 +384,7 @@
             .slice(0, 5)
             .map(
               (v) =>
-                `<div class="rank"><span>${v.title}</span><span>${v.channel}</span><span class="num">${fmt(v.baseline)}</span><span class="outlier num">${v.outlier.toFixed(1)}×</span></div>`
+                `<div class="rank"><span>${v.title}</span><span>${v.channel}</span><span class="num">${fmt(v.baseline)}</span><span class="outlier num">${v.outlier == null ? "Baseline pending" : v.outlier.toFixed(1) + "×"}</span></div>`
             )
             .join("")}
         </div>
@@ -329,15 +418,17 @@
   function oppRow(v) {
     const saved = state.saved.has(v.id);
     return `<div class="opp">
-      ${img(v.thumbAlt)}
+      ${videoImg(v)}
       <div>
-        <div class="t">${v.title}</div>
-        <div class="meta">${v.channel} · ${v.age} · ${fmt(v.views)} views · <span class="tip" title="Current views divided by video age.">${fmt(v.viewsDay)}/day</span> ·
-          <span class="tip" title="Likes + comments relative to views.">${v.engagement}% eng</span> · ${v.topic} · ${v.type}</div>
+        <div class="t">${esc(v.title)}</div>
+        <div class="meta">${esc(v.channel)} · ${esc(v.age)} · ${fmt(v.views)} views · <span class="tip" title="Current views divided by video age.">${fmt(v.viewsDay)}/day</span> ·
+          <span class="tip" title="Likes + comments relative to views.">${Number(v.engagement || 0).toFixed(2)}% eng</span> · ${esc(v.topic)} · ${esc(v.type)}</div>
       </div>
       <div class="actions">
-        <span class="outlier num tip" title="Performance relative to the channel's typical recent video.">${v.outlier.toFixed(1)}×</span>
-        <span class="badge ${level(v.outlier)}">${levelLabel(v.outlier)}</span>
+        ${v.outlier == null
+          ? `<span class="meta">Baseline next</span>`
+          : `<span class="outlier num tip" title="Performance relative to the channel's typical recent video.">${v.outlier == null ? "Baseline pending" : v.outlier.toFixed(1) + "×"}</span>
+             <span class="badge ${level(v.outlier)}">${levelLabel(v.outlier)}</span>`}
         <button class="btn" data-act="${saved ? "unsave" : "save"}" data-id="${v.id}">${saved ? "Saved" : "Save"}</button>
         <button class="btn primary" data-act="analyze" data-id="${v.id}">Analyze</button>
       </div>
@@ -346,60 +437,80 @@
 
   function discover() {
     const list = state.searched ? filteredVideos() : [];
-    const topics = ["All", ...new Set(D.videos.map((v) => v.topic))];
+    const topicSource = state.searched ? state.liveVideos : D.videos;
+    const topics = ["All", ...new Set(topicSource.map((v) => v.topic).filter(Boolean))];
+    const option = (value, label) =>
+      `<option value="${value}" ${state.filters.time === value ? "selected" : ""}>${label}</option>`;
+
     return `
-      <p class="sub">Find videos performing unusually well for their channel.</p>
+      <p class="sub">Search real public YouTube data and compare velocity, engagement, and audience-normalized reach.</p>
       <form class="search-lg" id="ds">
-        <input name="q" value="${state.query}" placeholder="Search topics, keywords, or channels..." />
-        <button class="btn primary" type="submit">Search</button>
+        <input name="q" value="${esc(state.query)}" placeholder="Search topics, keywords, or channels..." />
+        <button class="btn primary" type="submit">Search YouTube</button>
       </form>
       <div class="filters">
-        <select id="ftime"><option value="24h">Last 24 hours</option><option value="3d">3 days</option><option value="7d" selected>7 days</option><option value="30d">30 days</option></select>
-        <select id="ftype"><option>All</option><option>Shorts</option><option>Long-form</option></select>
-        <input id="fmin" type="number" placeholder="Min views" style="width:110px" />
-        <select id="ftopic">${topics.map((t) => `<option>${t}</option>`).join("")}</select>
+        <select id="ftime">
+          ${option("24h", "Last 24 hours")}
+          ${option("3d", "3 days")}
+          ${option("7d", "7 days")}
+          ${option("30d", "30 days")}
+        </select>
+        <select id="ftype">
+          <option ${state.filters.type === "All" ? "selected" : ""}>All</option>
+          <option ${state.filters.type === "Shorts" ? "selected" : ""}>Shorts</option>
+          <option ${state.filters.type === "Long-form" ? "selected" : ""}>Long-form</option>
+        </select>
+        <input id="fmin" type="number" value="${state.filters.minViews || ""}" placeholder="Min views" style="width:110px" />
+        <select id="ftopic">${topics
+          .map((t) => `<option ${state.filters.topic === t ? "selected" : ""}>${esc(t)}</option>`)
+          .join("")}</select>
         <select id="fsort">
-          <option value="opp">Best Opportunities</option>
-          <option value="out">Outlier Score</option>
-          <option value="views">Views</option>
-          <option value="vpd">Views / Day</option>
-          <option value="eng">Engagement</option>
+          <option value="opp" ${state.filters.sort === "opp" ? "selected" : ""}>Best Opportunities</option>
+          <option value="out" ${state.filters.sort === "out" ? "selected" : ""}>Outlier Score</option>
+          <option value="views" ${state.filters.sort === "views" ? "selected" : ""}>Views</option>
+          <option value="vpd" ${state.filters.sort === "vpd" ? "selected" : ""}>Views / Day</option>
+          <option value="eng" ${state.filters.sort === "eng" ? "selected" : ""}>Engagement</option>
         </select>
         <button class="btn ghost" id="resetF">Reset filters</button>
       </div>
+      ${state.searched && !state.loading && !state.apiError
+        ? `<div class="meta" style="margin:-4px 0 12px">Live YouTube Data · Outlier and opportunity scoring arrive in Milestone 2.</div>`
+        : ""}
       ${
         state.loading
           ? `<div class="card" style="padding:16px"><div class="skel"></div><div class="skel"></div><div class="skel"></div></div>`
-          : state.error
-          ? `<div class="empty"><h3>Couldn't load results</h3><p>Try again in a moment.</p><button class="btn" id="retry">Retry</button></div>`
+          : state.apiError
+          ? `<div class="empty"><h3>Couldn't load YouTube results</h3><p>${esc(state.apiError)}</p><button class="btn" id="retry">Retry</button></div>`
           : !state.searched
           ? `<div class="empty">
               <h3>Find your next content opportunity.</h3>
-              <p>Search for a topic, niche, keyword, or channel.</p>
+              <p>Search real YouTube data by topic, niche, keyword, or channel.</p>
               <div class="chips">${["AI tools", "coding projects", "trading mistakes", "trading signals", "build in public", "creator growth"]
-                .map((s) => `<button class="chip" data-sug="${s}">${s}</button>`)
+                .map((s) => `<button class="chip" data-sug="${esc(s)}">${esc(s)}</button>`)
                 .join("")}</div>
             </div>`
           : list.length === 0
-          ? `<div class="empty"><h3>No strong outliers found for this search yet.</h3><p>Try a broader keyword or longer time range.</p></div>`
+          ? `<div class="empty"><h3>No YouTube videos found for this search.</h3><p>Try a broader keyword or longer time range.</p></div>`
           : `<div class="card desk-only"><table class="table">
               <thead><tr><th></th><th>Video</th><th>Age</th><th>Views</th><th>Views/day</th><th>V/sub</th><th>Eng</th><th>Outlier</th><th>Opp</th><th></th></tr></thead>
               <tbody>${list
                 .map(
                   (v) => `<tr>
-                    <td>${img(v.thumbAlt)}</td>
-                    <td><div class="t">${v.title}</div><div class="meta">${v.channel} · ${fmt(v.subs)} subs · ${v.duration} · ${v.topic}</div></td>
-                    <td>${v.age}</td>
+                    <td>${videoImg(v)}</td>
+                    <td><div class="t">${esc(v.title)}</div><div class="meta">${esc(v.channel)} · ${fmt(v.subs)} subs · ${esc(v.duration)} · ${esc(v.topic)}</div></td>
+                    <td>${esc(v.age)}</td>
                     <td class="num">${fmt(v.views)}</td>
                     <td class="num tip" title="Current views divided by video age.">${fmt(v.viewsDay)}</td>
-                    <td class="num">${v.viewsSub}×</td>
-                    <td class="num">${v.engagement}%</td>
-                    <td><span class="outlier num tip" title="Performance relative to the channel's typical recent video.">${v.outlier.toFixed(1)}×</span><div class="meta">${v.outlier.toFixed(1)}× channel baseline</div></td>
-                    <td class="num tip" title="Opportunity Score combines outlier strength, velocity, engagement, and recency.">${v.opportunity}/100</td>
+                    <td class="num">${ratioLabel(v.viewsSub)}</td>
+                    <td class="num">${Number(v.engagement || 0).toFixed(2)}%</td>
+                    <td>${v.outlier == null
+                      ? `<span class="meta">Next milestone</span>`
+                      : `<span class="outlier num">${v.outlier == null ? "Baseline pending" : v.outlier.toFixed(1) + "×"}</span><div class="meta">${v.outlier == null ? "Baseline pending" : v.outlier.toFixed(1) + "×"} channel baseline</div>`}</td>
+                    <td class="num">${v.opportunity == null ? "—" : v.opportunity + "/100"}</td>
                     <td class="actions">
-                      <button class="btn" data-act="${state.saved.has(v.id) ? "unsave" : "save"}" data-id="${v.id}">${state.saved.has(v.id) ? "Saved" : "Save"}</button>
-                      <button class="btn" data-act="analyze" data-id="${v.id}">Analyze</button>
-                      <button class="btn primary" data-act="idea" data-id="${v.id}">Turn into Idea</button>
+                      <button class="btn" data-act="${state.saved.has(v.id) ? "unsave" : "save"}" data-id="${esc(v.id)}">${state.saved.has(v.id) ? "Saved" : "Save"}</button>
+                      <button class="btn" data-act="analyze" data-id="${esc(v.id)}">Analyze</button>
+                      <button class="btn primary" data-act="idea" data-id="${esc(v.id)}">Turn into Idea</button>
                     </td>
                   </tr>`
                 )
@@ -407,14 +518,64 @@
              <div class="card" style="display:none" id="mlist">${list.map((v) => oppRow(v) + extraActs(v)).join("")}</div>`
       }`;
   }
+
   function extraActs(v) {
     return "";
   }
 
+  function liveAnalysis(v, related, n) {
+    return `
+      <div class="video-head">
+        ${videoImg(v, "thumb")}
+        <div>
+          <div class="t" style="font-size:18px">${esc(v.title)}</div>
+          <div class="meta">${esc(v.channel)} · ${esc(v.published)} · ${esc(v.duration)} · ${esc(v.type)}</div>
+          <div class="actions" style="margin-top:12px">
+            <a class="btn" href="${esc(v.youtubeUrl)}" target="_blank" rel="noreferrer">Open on YouTube</a>
+            <button class="btn" data-act="${state.saved.has(v.id) ? "unsave" : "save"}" data-id="${esc(v.id)}">${state.saved.has(v.id) ? "Saved" : "Save Research"}</button>
+            <button class="btn primary" data-act="idea" data-id="${esc(v.id)}">Turn into Idea</button>
+          </div>
+        </div>
+      </div>
+      <div class="metrics">
+        <div class="metric"><label>Views</label><div class="val num">${Number(v.views || 0).toLocaleString()}</div></div>
+        <div class="metric"><label>Views / Day</label><div class="val num">${fmt(v.viewsDay)}</div></div>
+        <div class="metric"><label>Engagement Rate</label><div class="val num">${Number(v.engagement || 0).toFixed(2)}%</div></div>
+        <div class="metric"><label>Views / Subscriber</label><div class="val num">${ratioLabel(v.viewsSub)}</div></div>
+        <div class="metric"><label>Outlier Score</label><div class="val" style="font-size:14px">Milestone 2</div></div>
+        <div class="metric"><label>Channel Baseline</label><div class="val" style="font-size:14px">Milestone 2</div></div>
+      </div>
+      <div class="card why">
+        <h2 style="margin:0 0 8px;font-size:14px">Live YouTube signal</h2>
+        <ul>
+          <li>${fmt(v.viewsDay)} estimated views/day based on current age.</li>
+          <li>${Number(v.engagement || 0).toFixed(2)}% public engagement from likes + comments relative to views.</li>
+          <li>${v.viewsSub == null ? "Subscriber count is hidden or unavailable." : ratioLabel(v.viewsSub) + " views relative to current channel subscribers."}</li>
+          <li>Channel-baseline outlier detection is intentionally not calculated yet.</li>
+        </ul>
+      </div>
+      <div class="card" style="margin-top:12px;padding:14px">
+        <h2 style="margin:0 0 10px;font-size:14px">Creator notes</h2>
+        <form class="form" id="noteForm" data-vid="${esc(v.id)}">
+          <label>Why did you save this?<textarea name="why" rows="2">${esc(n.why)}</textarea></label>
+          <label>How could you adapt this idea without copying it?<textarea name="adapt" rows="2">${esc(n.adapt)}</textarea></label>
+          <label>What unique angle could you add?<textarea name="angle" rows="2">${esc(n.angle)}</textarea></label>
+          <button class="btn primary" type="submit">Save note</button>
+        </form>
+      </div>
+      <div class="card" style="margin-top:12px">
+        <div class="card-h"><h2>Related live results</h2><p>Other videos returned for the same search.</p></div>
+        ${related.length
+          ? related.map((r) => `<div class="opp">${videoImg(r)}<div><div class="t">${esc(r.title)}</div><div class="meta">${esc(r.channel)} · ${fmt(r.viewsDay)}/day</div></div><span class="num">${fmt(r.views)} views</span></div>`).join("")
+          : `<div class="empty"><p>No related live results in this search set.</p></div>`}
+      </div>`;
+  }
+
   function analysis(id) {
-    const v = D.videos.find((x) => x.id === id) || D.videos[0];
-    const related = D.videos.filter((x) => x.topic === v.topic && x.id !== v.id).slice(0, 4);
+    const v = videoById(id) || D.videos[0];
+    const related = allKnownVideos().filter((x) => x.topic === v.topic && x.id !== v.id).slice(0, 4);
     const n = state.notes[v.id] || { why: "", adapt: "", angle: "" };
+    if (v.source === "youtube") return liveAnalysis(v, related, n);
     return `
       <div class="video-head">
         ${img(v.thumbAlt, "thumb")}
@@ -433,7 +594,7 @@
         <div class="metric"><label class="tip" title="Current views divided by video age.">Views / Day</label><div class="val num">${fmt(v.viewsDay)}</div></div>
         <div class="metric"><label class="tip" title="Likes + comments relative to views.">Engagement Rate</label><div class="val num">${v.engagement}%</div></div>
         <div class="metric"><label>Views / Subscriber</label><div class="val num">${v.viewsSub}×</div></div>
-        <div class="metric"><label class="tip" title="Performance relative to the channel's typical recent video.">Outlier Score</label><div class="val num outlier">${v.outlier.toFixed(1)}×</div></div>
+        <div class="metric"><label class="tip" title="Performance relative to the channel's typical recent video.">Outlier Score</label><div class="val num outlier">${v.outlier == null ? "Baseline pending" : v.outlier.toFixed(1) + "×"}</div></div>
         <div class="metric"><label>Channel Baseline</label><div class="val num">${fmt(v.baseline)}</div></div>
       </div>
       <div class="grid2">
@@ -445,7 +606,7 @@
         <div class="card why">
           <h2 style="margin:0 0 8px;font-size:14px">Why this is interesting</h2>
           <ul>
-            <li>${v.outlier.toFixed(1)}× above channel baseline</li>
+            <li>${v.outlier == null ? "Baseline pending" : v.outlier.toFixed(1) + "×"} above channel baseline</li>
             <li>Unusually high views during the first ${v.age}</li>
             <li>Engagement ${Math.round((v.engagement / 5.8 - 1) * 100)}% vs a typical 5.8% channel rate</li>
             <li>Topic appearing across multiple recent outliers</li>
@@ -492,7 +653,7 @@
   }
 
   function saved() {
-    const items = D.videos.filter((v) => state.saved.has(v.id));
+    const items = allKnownVideos().filter((v) => state.saved.has(v.id));
     return `
       <p class="sub">Your library of interesting videos, formats, hooks and opportunities.</p>
       <div class="filters">
@@ -506,11 +667,11 @@
           : state.savedView === "grid"
           ? `<div class="grid2">${items
               .map(
-                (v) => `<div class="card" style="padding:12px">${img(v.thumbAlt)}
+                (v) => `<div class="card" style="padding:12px">${videoImg(v)}
                 <div class="t" style="margin-top:8px">${v.title}</div>
                 <div class="meta">${v.channel} · ${v.topic} · saved recently</div>
                 <div class="actions" style="margin-top:8px">
-                  <span class="outlier">${v.outlier.toFixed(1)}×</span>
+                  <span class="outlier">${v.outlier == null ? "Baseline pending" : v.outlier.toFixed(1) + "×"}</span>
                   <button class="btn" data-act="analyze" data-id="${v.id}">Open analysis</button>
                   <button class="btn primary" data-act="idea" data-id="${v.id}">Turn into Idea</button>
                   <button class="btn ghost" data-act="unsave" data-id="${v.id}">Remove</button>
@@ -520,7 +681,7 @@
           : `<div class="card"><table class="table"><thead><tr><th>Video</th><th>Outlier</th><th>Views</th><th></th></tr></thead><tbody>
             ${items
               .map(
-                (v) => `<tr><td>${v.title}<div class="meta">${v.channel}</div></td><td class="outlier">${v.outlier.toFixed(1)}×</td><td>${fmt(v.views)}</td>
+                (v) => `<tr><td>${v.title}<div class="meta">${v.channel}</div></td><td class="outlier">${v.outlier == null ? "Baseline pending" : v.outlier.toFixed(1) + "×"}</td><td>${fmt(v.views)}</td>
                 <td><button class="btn" data-act="unsave" data-id="${v.id}">Remove</button></td></tr>`
               )
               .join("")}</tbody></table></div>`
@@ -858,11 +1019,7 @@
     });
     document.querySelectorAll("[data-go]").forEach((b) => (b.onclick = () => navigate(b.dataset.go)));
     document.querySelectorAll("[data-sug]").forEach((b) => {
-      b.onclick = () => {
-        state.query = b.dataset.sug;
-        state.searched = true;
-        render();
-      };
+      b.onclick = () => runDiscoverSearch(b.dataset.sug);
     });
     document.querySelectorAll("[data-view]").forEach((b) => {
       b.onclick = () => {
@@ -880,14 +1037,7 @@
     if (ds)
       ds.onsubmit = (e) => {
         e.preventDefault();
-        state.query = ds.q.value;
-        state.searched = true;
-        state.loading = true;
-        render();
-        setTimeout(() => {
-          state.loading = false;
-          render();
-        }, 400);
+        runDiscoverSearch(ds.q.value);
       };
     const reset = document.getElementById("resetF");
     if (reset)
@@ -895,17 +1045,21 @@
         state.filters = { time: "7d", type: "All", minViews: 0, sort: "opp", topic: "All" };
         state.query = "";
         state.searched = false;
+        state.liveVideos = [];
+        state.apiError = "";
         render();
       };
-    ["ftype", "fsort", "ftopic", "fmin"].forEach((id) => {
+    ["ftime", "ftype", "fsort", "ftopic", "fmin"].forEach((id) => {
       const el = document.getElementById(id);
       if (!el) return;
       el.onchange = () => {
+        if (id === "ftime") state.filters.time = el.value;
         if (id === "ftype") state.filters.type = el.value;
         if (id === "fsort") state.filters.sort = el.value;
         if (id === "ftopic") state.filters.topic = el.value;
         if (id === "fmin") state.filters.minViews = +el.value || 0;
-        if (state.searched) render();
+        if (id === "ftime" && state.searched) runDiscoverSearch(state.query);
+        else if (state.searched) render();
       };
     });
     document.getElementById("newIdea")?.addEventListener("click", () => openIdeaModal(null));
@@ -949,8 +1103,7 @@
       };
     });
     document.getElementById("retry")?.addEventListener("click", () => {
-      state.error = false;
-      render();
+      runDiscoverSearch(state.query);
     });
   }
 
