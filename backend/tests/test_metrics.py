@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 from backend.app.metrics import (
     calculate_channel_baseline,
+    calculate_opportunity_score,
     calculate_video_metrics,
     format_duration,
     parse_youtube_duration,
@@ -292,3 +293,119 @@ def test_baseline_caps_comparison_pool_to_most_recent_usable_samples():
     assert result["baselineSampleSize"] == 12
     assert result["baselineVelocity"] == 100
     assert result["outlier"] == 1.0
+
+
+
+def test_opportunity_score_is_explainable_and_bounded():
+    result = calculate_opportunity_score(
+        views=50_000,
+        subscribers=25_000,
+        views_day=42_000,
+        engagement=7.2,
+        views_sub=2.0,
+        age_hours_value=12,
+        outlier=5.8,
+        baseline_sample_size=10,
+        baseline_scope="same-format",
+        live_broadcast_content="none",
+    )
+
+    assert 0 <= result["opportunity"] <= 100
+    assert result["opportunity"] >= 80
+    assert result["opportunityRaw"] == sum(
+        component["score"] for component in result["opportunityComponents"]
+    )
+    assert [component["max"] for component in result["opportunityComponents"]] == [
+        40,
+        20,
+        15,
+        10,
+        10,
+        5,
+    ]
+    assert result["opportunityScoreVersion"] == "v1"
+
+
+def test_tiny_channel_breakout_cannot_dominate_on_ratio_alone():
+    result = calculate_opportunity_score(
+        views=255,
+        subscribers=4,
+        views_day=800,
+        engagement=2.0,
+        views_sub=63.75,
+        age_hours_value=8,
+        outlier=8.0,
+        baseline_sample_size=5,
+        baseline_scope="same-format",
+        live_broadcast_content="none",
+    )
+
+    audience = next(
+        component
+        for component in result["opportunityComponents"]
+        if component["key"] == "audience"
+    )
+    assert audience["score"] <= 4
+    assert result["opportunity"] <= 40
+    assert any(
+        guardrail["key"] == "tiny-channel-ratio"
+        for guardrail in result["opportunityGuardrails"]
+    )
+    assert any(
+        guardrail["key"] == "low-traction"
+        for guardrail in result["opportunityGuardrails"]
+    )
+
+
+def test_missing_baseline_caps_opportunity():
+    result = calculate_opportunity_score(
+        views=20_000,
+        subscribers=10_000,
+        views_day=100_000,
+        engagement=8.0,
+        views_sub=2.0,
+        age_hours_value=4,
+        outlier=None,
+        baseline_sample_size=1,
+        baseline_scope="insufficient-sample",
+        live_broadcast_content="none",
+    )
+
+    assert result["opportunity"] <= 55
+    assert any(
+        guardrail["key"] == "missing-baseline"
+        for guardrail in result["opportunityGuardrails"]
+    )
+
+
+def test_live_content_gets_velocity_guardrail_penalty():
+    normal = calculate_opportunity_score(
+        views=20_000,
+        subscribers=100_000,
+        views_day=250_000,
+        engagement=1.0,
+        views_sub=0.2,
+        age_hours_value=2,
+        outlier=1.1,
+        baseline_sample_size=9,
+        baseline_scope="same-format",
+        live_broadcast_content="none",
+    )
+    live = calculate_opportunity_score(
+        views=20_000,
+        subscribers=100_000,
+        views_day=250_000,
+        engagement=1.0,
+        views_sub=0.2,
+        age_hours_value=2,
+        outlier=1.1,
+        baseline_sample_size=9,
+        baseline_scope="same-format",
+        live_broadcast_content="live",
+    )
+
+    assert live["opportunity"] == normal["opportunity"] - 5
+    assert any(
+        guardrail["key"] == "live-content"
+        for guardrail in live["opportunityGuardrails"]
+    )
