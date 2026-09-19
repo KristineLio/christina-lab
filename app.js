@@ -1013,156 +1013,209 @@
     </svg>`;
   }
 
+  function workflowGate() {
+    if (state.workflowLoading && !state.workflowLoaded) {
+      return `<div class="card" style="padding:16px"><div class="skel"></div><div class="skel"></div><div class="skel"></div></div>`;
+    }
+    if (state.workflowError && !state.workflowLoaded) {
+      return `<div class="empty"><h3>Couldn't load the creator workflow</h3><p>${esc(state.workflowError)}</p><button class="btn primary" id="retryWorkflow">Retry</button></div>`;
+    }
+    return "";
+  }
+
   function saved() {
-    const items = allKnownVideos().filter((v) => state.saved.has(v.id));
+    const gate = workflowGate();
+    if (gate) return gate;
+    const items = state.savedResearch.slice();
     return `
-      <p class="sub">Your library of interesting videos, formats, hooks and opportunities.</p>
+      <p class="sub">Persisted research you deliberately chose to keep. Notes survive refreshes and become the source material for ideas.</p>
       <div class="filters">
         <button class="btn ${state.savedView === "grid" ? "primary" : ""}" data-view="grid">Grid</button>
         <button class="btn ${state.savedView === "table" ? "primary" : ""}" data-view="table">Table</button>
-        <select id="scol"><option>All</option><option>Trading Psychology</option><option>RiskDesk Ideas</option><option>Build in Public</option><option>AI Tools</option><option>YouTube Growth</option></select>
+        <span class="meta">${items.length} saved research item${items.length === 1 ? "" : "s"}</span>
       </div>
-      ${
-        items.length === 0
-          ? `<div class="empty"><h3>No saved research yet.</h3><p>Discover interesting videos and save the strongest opportunities here.</p><button class="btn primary" data-go="/discover">Explore Videos</button></div>`
-          : state.savedView === "grid"
-          ? `<div class="grid2">${items
-              .map(
-                (v) => `<div class="card" style="padding:12px">${videoImg(v)}
-                <div class="t" style="margin-top:8px">${v.title}</div>
-                <div class="meta">${v.channel} · ${v.topic} · saved recently</div>
-                <div class="actions" style="margin-top:8px">
-                  <span class="outlier">${v.outlier == null ? "Baseline pending" : v.outlier.toFixed(1) + "×"}</span>
-                  <button class="btn" data-act="analyze" data-id="${v.id}">Open analysis</button>
-                  <button class="btn primary" data-act="idea" data-id="${v.id}">Turn into Idea</button>
-                  <button class="btn ghost" data-act="unsave" data-id="${v.id}">Remove</button>
-                </div></div>`
-              )
-              .join("")}</div>`
-          : `<div class="card"><table class="table"><thead><tr><th>Video</th><th>Outlier</th><th>Views</th><th></th></tr></thead><tbody>
-            ${items
-              .map(
-                (v) => `<tr><td>${v.title}<div class="meta">${v.channel}</div></td><td class="outlier">${v.outlier == null ? "Baseline pending" : v.outlier.toFixed(1) + "×"}</td><td>${fmt(v.views)}</td>
-                <td><button class="btn" data-act="unsave" data-id="${v.id}">Remove</button></td></tr>`
-              )
-              .join("")}</tbody></table></div>`
-      }`;
+      ${items.length === 0
+        ? `<div class="empty"><h3>No saved research yet.</h3><p>Save a real Discover result, write why it matters, then turn it into an idea.</p><button class="btn primary" data-go="/discover">Explore Videos</button></div>`
+        : state.savedView === "grid"
+        ? `<div class="grid2">${items.map((v) => `
+            <div class="card" style="padding:12px">
+              ${videoImg(v)}
+              <div class="t" style="margin-top:8px">${esc(v.title)}</div>
+              <div class="meta">${esc(v.channel)} · ${esc(v.topic || "Unspecified")} · ${esc(v.type)} · ${fmt(v.views)} views</div>
+              <div class="actions" style="margin:8px 0">
+                <span class="num">${v.opportunity == null ? "—" : v.opportunity + "/100"}</span>
+                <span class="outlier">${v.outlier == null ? "Baseline pending" : Number(v.outlier).toFixed(1) + "×"}</span>
+                <span class="badge">${v.ideaCount || 0} idea${Number(v.ideaCount || 0) === 1 ? "" : "s"}</span>
+              </div>
+              <div class="meta"><b>Why:</b> ${esc(v.why || "Not written yet")}</div>
+              <div class="meta" style="margin-top:4px"><b>Adapt:</b> ${esc(v.adapt || "Not written yet")}</div>
+              <div class="meta" style="margin-top:4px"><b>Angle:</b> ${esc(v.angle || "Not written yet")}</div>
+              <div class="actions" style="margin-top:10px">
+                <button class="btn" data-act="analyze" data-id="${esc(v.videoId || v.id)}">Open research</button>
+                <button class="btn primary" data-act="idea" data-id="${esc(v.videoId || v.id)}">Turn into Idea</button>
+                <button class="btn ghost" data-act="unsave" data-id="${esc(v.videoId || v.id)}">Remove</button>
+              </div>
+            </div>`).join("")}</div>`
+        : `<div class="card"><table class="table"><thead><tr><th>Research</th><th>Opp</th><th>Outlier</th><th>Notes</th><th></th></tr></thead><tbody>
+            ${items.map((v) => `<tr>
+              <td><div class="t">${esc(v.title)}</div><div class="meta">${esc(v.channel)} · ${esc(v.topic || "Unspecified")}</div></td>
+              <td class="num">${v.opportunity == null ? "—" : v.opportunity + "/100"}</td>
+              <td class="outlier">${v.outlier == null ? "—" : Number(v.outlier).toFixed(1) + "×"}</td>
+              <td>${[v.why, v.adapt, v.angle].filter(Boolean).length}/3 prompts</td>
+              <td class="actions"><button class="btn primary" data-act="idea" data-id="${esc(v.videoId || v.id)}">Idea</button><button class="btn ghost" data-act="unsave" data-id="${esc(v.videoId || v.id)}">Remove</button></td>
+            </tr>`).join("")}
+          </tbody></table></div>`}
+    `;
   }
 
   function ideas() {
-    const cols = ["Inbox", "Researching", "Ready", "Recorded", "Published", "Analyzing"];
+    const gate = workflowGate();
+    if (gate) return gate;
+    const cols = ["Draft", "Ready", "Published"];
     return `
-      <p class="sub">Turn research findings into a content production pipeline.</p>
-      <div class="actions" style="margin-bottom:12px"><button class="btn primary" id="newIdea">Create idea</button></div>
+      <p class="sub">Persisted idea pipeline: Draft → Ready → Published. Drag cards between stages; every move is saved to SQLite.</p>
+      <div class="actions" style="margin-bottom:12px">
+        <button class="btn primary" id="newIdea">Create idea</button>
+        <span class="meta">${state.ideas.length} persisted idea${state.ideas.length === 1 ? "" : "s"}</span>
+      </div>
+      ${state.ideas.length === 0 ? `<div class="empty"><h3>No ideas yet.</h3><p>Turn a Saved Research item into your first testable content idea.</p><button class="btn primary" data-go="/saved">Open Saved Research</button></div>` : `
       <div class="kanban">
-        ${cols
-          .map((c) => {
-            const cards = state.ideas.filter((i) => i.status === c);
-            return `<div class="kcol" data-col="${c}"><h3>${c} · ${cards.length}</h3>
-              ${cards
-                .map(
-                  (i) => `<div class="icard" draggable="true" data-idea="${i.id}">
-                    <div class="t">${i.title}</div>
-                    <div class="hook">${i.hook}</div>
-                    <div class="meta">${i.topic} · ${i.type} · ${i.sources} sources · ${i.priority}</div>
-                  </div>`
-                )
-                .join("")}
-            </div>`;
-          })
-          .join("")}
-      </div>`;
+        ${cols.map((colName) => {
+          const cards = state.ideas.filter((idea) => idea.status === colName);
+          return `<div class="kcol" data-col="${colName}"><h3>${colName} · ${cards.length}</h3>
+            ${cards.map((idea) => `<div class="icard" draggable="true" data-idea="${idea.id}">
+              <div class="t">${esc(idea.title)}</div>
+              <div class="hook">${esc(idea.hook || idea.hypothesis || "No hook/hypothesis written yet")}</div>
+              <div class="meta">${esc(idea.topic || "Unspecified")} · ${esc(idea.type)} · ${esc(idea.priority)} priority${idea.sourceVideoId ? " · sourced from research" : ""}</div>
+              <div class="actions" style="margin-top:8px">
+                <button class="btn primary" data-create-exp="${idea.id}">Create Experiment</button>
+              </div>
+            </div>`).join("")}
+          </div>`;
+        }).join("")}
+      </div>`}
+    `;
   }
 
   function lab() {
+    const gate = workflowGate();
+    if (gate) return gate;
     const e = state.experiments;
-    const pub = e.filter((x) => x.status === "Published").length;
-    const avg = Math.round(e.filter((x) => x.v24).reduce((s, x) => s + x.v24, 0) / e.filter((x) => x.v24).length);
-    const avgS = Math.round(e.filter((x) => x.subs).reduce((s, x) => s + x.subs, 0) / e.filter((x) => x.subs).length);
+    const summary = state.workflowSummary || {};
+    const decisions = summary.decisions || {};
+    const learning = state.learningSignals || [];
     return `
-      <div style="font-size:20px;font-weight:600">Christina Lab</div>
-      <p class="sub">Turn content ideas into measurable experiments.</p>
+      <div style="font-size:20px;font-weight:600">Christina Lab experiments</div>
+      <p class="sub">Ideas become measurable tests. Record the actual result, then choose GO / TEST / HOLD based on your evidence.</p>
+      <div class="actions" style="margin-bottom:12px"><button class="btn primary" id="newExperiment">Create experiment</button></div>
       <div class="metrics">
-        <div class="metric"><label>Experiments</label><div class="val num">${e.length}</div></div>
-        <div class="metric"><label>Published</label><div class="val num">${pub}</div></div>
-        <div class="metric"><label>GO</label><div class="val num">${e.filter((x) => x.decision === "GO").length}</div></div>
-        <div class="metric"><label>TEST</label><div class="val num">${e.filter((x) => x.decision === "TEST").length}</div></div>
-        <div class="metric"><label>HOLD</label><div class="val num">${e.filter((x) => x.decision === "HOLD").length}</div></div>
-        <div class="metric"><label>Average 24h Views</label><div class="val num">${fmt(avg)}</div></div>
-        <div class="metric"><label>Average Subscriber Gain</label><div class="val num">+${avgS}</div></div>
+        <div class="metric"><label>Experiments</label><div class="val num">${summary.experiments ?? e.length}</div></div>
+        <div class="metric"><label>Published</label><div class="val num">${summary.publishedExperiments ?? e.filter((x) => x.status === "Published").length}</div></div>
+        <div class="metric"><label>GO</label><div class="val num">${decisions.GO || 0}</div></div>
+        <div class="metric"><label>TEST</label><div class="val num">${decisions.TEST || 0}</div></div>
+        <div class="metric"><label>HOLD</label><div class="val num">${decisions.HOLD || 0}</div></div>
+        <div class="metric"><label>Average 24h Views</label><div class="val num">${summary.average24hViews == null ? "—" : fmt(summary.average24hViews)}</div></div>
+        <div class="metric"><label>Average Subscriber Gain</label><div class="val num">${summary.averageSubscriberGain == null ? "—" : (summary.averageSubscriberGain >= 0 ? "+" : "") + summary.averageSubscriberGain}</div></div>
       </div>
-      <div class="card">
+
+      ${e.length ? `<div class="card">
         <table class="table">
-          <thead><tr><th>Experiment</th><th>Topic</th><th>Format</th><th>24h</th><th>7d</th><th>Ret.</th><th>Subs</th><th>Decision</th></tr></thead>
+          <thead><tr><th>Experiment</th><th>Topic</th><th>Status</th><th>24h</th><th>7d</th><th>Ret.</th><th>Subs</th><th>Decision</th></tr></thead>
           <tbody>
-            ${e
-              .map(
-                (x) => `<tr>
-                  <td><a href="#/experiment/${x.id}">${x.id}</a><div class="meta">${x.name}</div></td>
-                  <td>${x.topic}</td><td>${x.format}</td>
-                  <td class="num">${x.v24 ? fmt(x.v24) : '<span class="dim">Not connected</span>'}</td>
-                  <td class="num">${x.v7 ? fmt(x.v7) : "—"}</td>
-                  <td>${x.retention ?? "—"}</td>
-                  <td>${x.subs != null ? "+" + x.subs : "—"}</td>
-                  <td>
-                    <select class="dec" data-exp="${x.id}">
-                      <option ${x.decision === "GO" ? "selected" : ""}>GO</option>
-                      <option ${x.decision === "TEST" ? "selected" : ""}>TEST</option>
-                      <option ${x.decision === "HOLD" ? "selected" : ""}>HOLD</option>
-                    </select>
-                  </td>
-                </tr>`
-              )
-              .join("")}
+            ${e.map((x) => `<tr>
+              <td><a href="#/experiment/${x.id}">EXP-${String(x.id).padStart(3, "0")}</a><div class="meta">${esc(x.name)}</div></td>
+              <td>${esc(x.topic || "Unspecified")}<div class="meta">${esc(x.format)}</div></td>
+              <td>${esc(x.status)}</td>
+              <td class="num">${x.v24 == null ? "—" : fmt(x.v24)}</td>
+              <td class="num">${x.v7 == null ? "—" : fmt(x.v7)}</td>
+              <td>${x.retention == null ? "—" : Number(x.retention).toFixed(1) + "%"}</td>
+              <td>${x.subs == null ? "—" : (x.subs >= 0 ? "+" : "") + x.subs}</td>
+              <td>
+                <select class="dec" data-exp="${x.id}">
+                  <option value="UNDECIDED" ${x.decision === "UNDECIDED" ? "selected" : ""}>Undecided</option>
+                  <option ${x.decision === "GO" ? "selected" : ""}>GO</option>
+                  <option ${x.decision === "TEST" ? "selected" : ""}>TEST</option>
+                  <option ${x.decision === "HOLD" ? "selected" : ""}>HOLD</option>
+                </select>
+              </td>
+            </tr>`).join("")}
           </tbody>
         </table>
+      </div>` : `<div class="empty"><h3>No experiments yet.</h3><p>Create an experiment from a Ready idea, then record what actually happened.</p><button class="btn primary" data-go="/ideas">Open Ideas</button></div>`}
+
+      <div class="card" style="margin-top:12px">
+        <div class="card-h"><h2>What Christina Lab is learning</h2><p>Creator-specific evidence from your persisted experiments — not market popularity.</p></div>
+        ${learning.length
+          ? learning.map((row) => `<div class="rank"><span><b>${esc(row.topic)}</b></span><span>${row.experiments} experiment${row.experiments === 1 ? "" : "s"}</span><span>GO ${row.GO || 0} · TEST ${row.TEST || 0} · HOLD ${row.HOLD || 0}</span><span>${row.avg24hViews == null ? "24h pending" : fmt(row.avg24hViews) + " avg 24h"}${row.avgSubscriberGain == null ? "" : " · " + (row.avgSubscriberGain >= 0 ? "+" : "") + row.avgSubscriberGain + " subs"}</span></div>`).join("")
+          : `<div class="empty"><p>No creator-specific evidence yet. Publish a test, enter its real result, and make a GO / TEST / HOLD decision.</p></div>`}
       </div>
-      <p class="sub">GO = strong evidence to scale. TEST = promising, need more runs. HOLD = not a priority yet. Decisions are yours — not AI certainty.</p>`;
+      <p class="sub">GO = evidence worth scaling. TEST = promising but needs another run. HOLD = not a current priority. Christina Lab stores your decision; it does not make the decision for you.</p>
+    `;
   }
 
   function experiment(id) {
-    const x = state.experiments.find((e) => e.id === id) || state.experiments[0];
+    const gate = workflowGate();
+    if (gate) return gate;
+    const x = state.experiments.find((item) => String(item.id) === String(id));
+    if (!x) {
+      return `<div class="empty"><h3>Experiment not found.</h3><p>It may not have been created yet or was loaded before the latest workflow refresh.</p><button class="btn" data-go="/lab">Back to Experiments</button></div>`;
+    }
+    const idea = state.ideas.find((item) => String(item.id) === String(x.ideaId));
     return `
-      <p class="sub">${x.id} · ${x.status}</p>
-      <h2 style="margin-top:0">${x.name}</h2>
+      <p class="sub">EXP-${String(x.id).padStart(3, "0")} · ${esc(x.status)} · source idea ${idea ? esc(idea.title) : "#" + x.ideaId}</p>
+      <h2 style="margin-top:0">${esc(x.name)}</h2>
       <div class="card" style="padding:14px;margin-bottom:12px">
         <div class="meta">Hypothesis</div>
-        <p>${x.hypothesis}</p>
-        <div class="meta">Source research · original idea ${x.ideaId}</div>
+        <p>${esc(x.hypothesis || "No hypothesis recorded yet.")}</p>
       </div>
       <div class="metrics">
-        <div class="metric"><label>24h views</label><div class="val num">${x.v24 ? fmt(x.v24) : "Not connected"}</div></div>
-        <div class="metric"><label>7d views</label><div class="val num">${x.v7 ? fmt(x.v7) : "—"}</div></div>
-        <div class="metric"><label>Retention</label><div class="val num">${x.retention ?? "—"}%</div></div>
-        <div class="metric"><label>Subscribers</label><div class="val num">${x.subs != null ? "+" + x.subs : "—"}</div></div>
+        <div class="metric"><label>24h views</label><div class="val num">${x.v24 == null ? "—" : fmt(x.v24)}</div></div>
+        <div class="metric"><label>7d views</label><div class="val num">${x.v7 == null ? "—" : fmt(x.v7)}</div></div>
+        <div class="metric"><label>Retention</label><div class="val num">${x.retention == null ? "—" : Number(x.retention).toFixed(1) + "%"}</div></div>
+        <div class="metric"><label>Subscribers</label><div class="val num">${x.subs == null ? "—" : (x.subs >= 0 ? "+" : "") + x.subs}</div></div>
+        <div class="metric"><label>CTR</label><div class="val num">${x.ctr == null ? "—" : Number(x.ctr).toFixed(1) + "%"}</div></div>
+        <div class="metric"><label>Decision</label><div class="val">${esc(x.decision === "UNDECIDED" ? "Undecided" : x.decision)}</div></div>
       </div>
-      <div class="card why">
-        <h2 style="font-size:14px;margin:0 0 8px">What did we learn?</h2>
-        <p>${x.lesson || "Publish first, then write the learning."}</p>
-        <div class="meta">Next test</div>
-        <p>${x.next}</p>
-        <label>Decision
-          <select class="dec" data-exp="${x.id}">
-            <option ${x.decision === "GO" ? "selected" : ""}>GO</option>
-            <option ${x.decision === "TEST" ? "selected" : ""}>TEST</option>
-            <option ${x.decision === "HOLD" ? "selected" : ""}>HOLD</option>
-          </select>
-        </label>
-      </div>`;
+
+      <div class="card" style="padding:14px">
+        <h2 style="font-size:14px;margin:0 0 10px">Record actual result</h2>
+        <form class="form" id="experimentResultForm" data-exp="${x.id}">
+          <label>Status <select name="status"><option ${x.status === "Draft" ? "selected" : ""}>Draft</option><option ${x.status === "Ready" ? "selected" : ""}>Ready</option><option ${x.status === "Published" ? "selected" : ""}>Published</option></select></label>
+          <label>Published date <input name="publishedAt" type="date" value="${esc(x.publishedAt || "")}" /></label>
+          <div class="grid2">
+            <label>24h views <input name="v24" type="number" min="0" value="${x.v24 ?? ""}" /></label>
+            <label>7d views <input name="v7" type="number" min="0" value="${x.v7 ?? ""}" /></label>
+            <label>Retention % <input name="retention" type="number" min="0" max="100" step="0.1" value="${x.retention ?? ""}" /></label>
+            <label>Subscriber gain <input name="subs" type="number" value="${x.subs ?? ""}" /></label>
+            <label>CTR % <input name="ctr" type="number" min="0" max="100" step="0.1" value="${x.ctr ?? ""}" /></label>
+          </div>
+          <label>Result summary <textarea name="result" rows="2">${esc(x.result || "")}</textarea></label>
+          <label>What did we learn? <textarea name="lesson" rows="3">${esc(x.lesson || "")}</textarea></label>
+          <label>Next test <textarea name="next" rows="2">${esc(x.next || "")}</textarea></label>
+          <label>Decision
+            <select name="decision">
+              <option value="UNDECIDED" ${x.decision === "UNDECIDED" ? "selected" : ""}>Undecided</option>
+              <option ${x.decision === "GO" ? "selected" : ""}>GO</option>
+              <option ${x.decision === "TEST" ? "selected" : ""}>TEST</option>
+              <option ${x.decision === "HOLD" ? "selected" : ""}>HOLD</option>
+            </select>
+          </label>
+          <button class="btn primary" type="submit">Save experiment result</button>
+        </form>
+      </div>
+    `;
   }
 
   function videosPage() {
-    return `<p class="sub">Christina's published YouTube videos, tied to experiments.</p>
-      <div class="card">${D.myVideos
-        .map(
-          (v) => `<div class="opp">
-            ${img("Published video thumbnail for " + v.title)}
-            <div><div class="t">${v.title}</div>
-            <div class="meta">${v.date} · ${v.type} · ${fmt(v.views)} views · 24h ${fmt(v.v24)} · 7d ${fmt(v.v7)} · +${v.subs} subs · ${v.retention}% ret · CTR ${v.ctr}%</div></div>
-            <div><a href="#/experiment/${v.exp}">${v.exp}</a> <span class="badge ${v.decision.toLowerCase()}">${v.decision}</span></div>
-          </div>`
-        )
-        .join("")}</div>`;
+    const gate = workflowGate();
+    if (gate) return gate;
+    const published = state.experiments.filter((item) => item.status === "Published");
+    return `<p class="sub">Published creator experiments. YouTube Creator Analytics is not connected yet, so these are the real results you entered manually.</p>
+      ${published.length ? `<div class="card">${published.map((x) => `<div class="opp" style="grid-template-columns:1fr auto">
+        <div><div class="t">${esc(x.name)}</div>
+        <div class="meta">${esc(x.publishedAt || "date not recorded")} · ${esc(x.format)} · 24h ${x.v24 == null ? "—" : fmt(x.v24)} · 7d ${x.v7 == null ? "—" : fmt(x.v7)} · ${x.subs == null ? "—" : (x.subs >= 0 ? "+" : "") + x.subs + " subs"} · ${x.retention == null ? "—" : Number(x.retention).toFixed(1) + "% retention"}</div></div>
+        <div><a href="#/experiment/${x.id}">EXP-${String(x.id).padStart(3, "0")}</a> <span class="badge ${String(x.decision || "").toLowerCase()}">${esc(x.decision === "UNDECIDED" ? "Undecided" : x.decision)}</span></div>
+      </div>`).join("")}</div>` : `<div class="empty"><h3>No published experiments yet.</h3><p>When you publish an experiment and save its result, it will appear here.</p><button class="btn primary" data-go="/lab">Open Experiments</button></div>`}`;
   }
 
   function patterns() {
