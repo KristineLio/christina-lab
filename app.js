@@ -66,7 +66,21 @@
   }
 
   function ratioLabel(value) {
-    return value == null ? "—" : value.toFixed(2) + "×";
+    if (value == null) return "—";
+    const ratio = Number(value);
+    if (!Number.isFinite(ratio)) return "—";
+    if (ratio >= 0.1) return ratio.toFixed(2) + "×";
+    if (ratio >= 0.001) return ratio.toFixed(3) + "×";
+    return ratio.toFixed(4) + "×";
+  }
+
+  function ratioPercentLabel(value) {
+    if (value == null) return "—";
+    const percent = Number(value) * 100;
+    if (!Number.isFinite(percent)) return "—";
+    if (percent >= 1) return percent.toFixed(1) + "%";
+    if (percent >= 0.1) return percent.toFixed(2) + "%";
+    return percent.toFixed(3) + "%";
   }
 
   function outlierLabel(v) {
@@ -553,7 +567,7 @@
         <div class="metric"><label>Views</label><div class="val num">${Number(v.views || 0).toLocaleString()}</div></div>
         <div class="metric"><label class="tip" title="Current average views/hour × 24. This is an extrapolated pace, not actual views received in 24 hours.">24h Run Rate</label><div class="val num">${fmt(v.viewsDay)}</div></div>
         <div class="metric"><label>Engagement Rate</label><div class="val num">${Number(v.engagement || 0).toFixed(2)}%</div></div>
-        <div class="metric"><label>Views / Subscriber</label><div class="val num">${ratioLabel(v.viewsSub)}</div></div>
+        <div class="metric"><label>Views / Subscriber</label><div class="val num">${ratioLabel(v.viewsSub)}</div><div class="sec">${v.viewsSub == null ? "Subscriber count unavailable" : ratioPercentLabel(v.viewsSub) + " of subscriber count"}</div></div>
         <div class="metric"><label class="tip" title="Average views/hour for this video divided by the median average views/hour of recent channel uploads.">Age-adjusted Outlier</label><div class="val num outlier">${baselineReady ? v.outlier.toFixed(1) + "×" : "—"}</div></div>
         <div class="metric"><label>Expected Views at This Age</label><div class="val num">${baselineReady ? fmt(v.baseline) : "—"}</div><div class="sec">${baselineReady ? "median " + fmt(v.baselineVelocity) + "/hour · " + v.baselineSampleSize + " " + baselineScope : "Need at least 3 usable recent uploads"}</div></div>
       </div>
@@ -587,7 +601,7 @@
             : `<li>There is not enough usable recent channel history to calculate a stable median baseline yet.</li>`}
           <li>${fmt(v.viewsDay)} projected 24h run rate from the video's current average pace; this is not actual 24-hour views.</li>
           <li>${Number(v.engagement || 0).toFixed(2)}% public engagement from likes + comments relative to views.</li>
-          <li>${v.viewsSub == null ? "Subscriber count is hidden or unavailable." : ratioLabel(v.viewsSub) + " views relative to current channel subscribers."}</li>
+          <li>${v.viewsSub == null ? "Subscriber count is hidden or unavailable." : ratioLabel(v.viewsSub) + " views/subscriber, equal to " + ratioPercentLabel(v.viewsSub) + " of the current subscriber count."}</li>
         </ul>
         <p class="meta" style="margin-bottom:0">Opportunity Score v1 and the age-adjusted outlier are Christina Lab derived metrics from public YouTube data, not official YouTube metrics.</p>
       </div>
