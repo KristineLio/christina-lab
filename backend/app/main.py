@@ -5,6 +5,7 @@ import os
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
 
 from .storage import SnapshotStore
 from .youtube import YouTubeAPIError, YouTubeClient
@@ -33,9 +34,85 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
     allow_credentials=False,
-    allow_methods=["GET"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
+
+
+class ResearchUpdate(BaseModel):
+    why: str | None = Field(default=None, max_length=4000)
+    adapt: str | None = Field(default=None, max_length=4000)
+    angle: str | None = Field(default=None, max_length=4000)
+    collection: str | None = Field(default=None, max_length=120)
+
+
+class IdeaCreate(BaseModel):
+    sourceVideoId: str | None = Field(default=None, max_length=40)
+    title: str = Field(min_length=1, max_length=240)
+    hook: str = Field(default="", max_length=500)
+    topic: str = Field(default="", max_length=160)
+    contentType: str = Field(default="Long-form", max_length=40)
+    angle: str = Field(default="", max_length=1000)
+    audience: str = Field(default="", max_length=500)
+    hypothesis: str = Field(default="", max_length=4000)
+    notes: str = Field(default="", max_length=4000)
+    priority: str = Field(default="Med", max_length=20)
+    status: str = Field(default="Draft", max_length=20)
+
+
+class IdeaUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=240)
+    hook: str | None = Field(default=None, max_length=500)
+    topic: str | None = Field(default=None, max_length=160)
+    contentType: str | None = Field(default=None, max_length=40)
+    angle: str | None = Field(default=None, max_length=1000)
+    audience: str | None = Field(default=None, max_length=500)
+    hypothesis: str | None = Field(default=None, max_length=4000)
+    notes: str | None = Field(default=None, max_length=4000)
+    priority: str | None = Field(default=None, max_length=20)
+    status: str | None = Field(default=None, max_length=20)
+
+
+class ExperimentCreate(BaseModel):
+    ideaId: int = Field(ge=1)
+    name: str | None = Field(default=None, max_length=240)
+    hypothesis: str | None = Field(default=None, max_length=4000)
+    status: str = Field(default="Draft", max_length=20)
+    decision: str = Field(default="UNDECIDED", max_length=20)
+
+
+class ExperimentUpdate(BaseModel):
+    name: str | None = Field(default=None, max_length=240)
+    hypothesis: str | None = Field(default=None, max_length=4000)
+    status: str | None = Field(default=None, max_length=20)
+    publishedAt: str | None = Field(default=None, max_length=40)
+    v24: int | None = Field(default=None, ge=0)
+    v7: int | None = Field(default=None, ge=0)
+    retention: float | None = Field(default=None, ge=0, le=100)
+    subs: int | None = None
+    ctr: float | None = Field(default=None, ge=0, le=100)
+    result: str | None = Field(default=None, max_length=4000)
+    decision: str | None = Field(default=None, max_length=20)
+    lesson: str | None = Field(default=None, max_length=4000)
+    next: str | None = Field(default=None, max_length=4000)
+
+
+IDEA_STATUSES = {"Draft", "Ready", "Published"}
+EXPERIMENT_STATUSES = {"Draft", "Ready", "Published"}
+EXPERIMENT_DECISIONS = {"UNDECIDED", "GO", "TEST", "HOLD"}
+PRIORITIES = {"High", "Med", "Low"}
+
+
+def _model_changes(model: BaseModel) -> dict:
+    return model.model_dump(exclude_unset=True)
+
+
+def _validate_choice(value: str | None, allowed: set[str], label: str) -> None:
+    if value is not None and value not in allowed:
+        raise HTTPException(
+            status_code=422,
+            detail=f"{label} must be one of: {', '.join(sorted(allowed))}",
+        )
 
 
 @app.get("/api/health")
@@ -95,3 +172,122 @@ async def dashboard() -> dict:
 @app.get("/api/patterns")
 async def patterns() -> dict:
     return snapshot_store.patterns_summary()
+
+
+
+@app.get("/api/workflow")
+async def workflow() -> dict:
+    return snapshot_store.workflow_summary()
+
+
+@app.get("/api/research")
+async def saved_research() -> dict:
+    items = snapshot_store.list_saved_research()
+    return {"count": len(items), "items": items}
+
+
+@app.put("/api/research/{video_id}")
+async def save_research(video_id: str, payload: ResearchUpdate) -> dict:
+    try:
+        return snapshot_store.save_research(
+            video_id,
+            why=payload.why,
+            adapt=payload.adapt,
+            angle=payload.angle,
+            collection=payload.collection,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.delete("/api/research/{video_id}")
+async def delete_research(video_id: str) -> dict:
+    deleted = snapshot_store.remove_saved_research(video_id)
+    return {"videoId": video_id, "deleted": deleted}
+
+
+@app.get("/api/ideas")
+async def ideas() -> dict:
+    items = snapshot_store.list_ideas()
+    return {"count": len(items), "items": items}
+
+
+@app.post("/api/ideas", status_code=201)
+async def create_idea(payload: IdeaCreate) -> dict:
+    _validate_choice(payload.status, IDEA_STATUSES, "Idea status")
+    _validate_choice(payload.priority, PRIORITIES, "Priority")
+
+    if payload.sourceVideoId:
+        try:
+            snapshot_store.save_research(payload.sourceVideoId)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    try:
+        return snapshot_store.create_idea(
+            title=payload.title,
+            source_video_id=payload.sourceVideoId,
+            hook=payload.hook,
+            topic=payload.topic,
+            content_type=payload.contentType,
+            angle=payload.angle,
+            audience=payload.audience,
+            hypothesis=payload.hypothesis,
+            notes=payload.notes,
+            priority=payload.priority,
+            status=payload.status,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.patch("/api/ideas/{idea_id}")
+async def update_idea(idea_id: int, payload: IdeaUpdate) -> dict:
+    changes = _model_changes(payload)
+    _validate_choice(changes.get("status"), IDEA_STATUSES, "Idea status")
+    _validate_choice(changes.get("priority"), PRIORITIES, "Priority")
+    item = snapshot_store.update_idea(idea_id, changes)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Idea not found.")
+    return item
+
+
+@app.get("/api/experiments")
+async def experiments() -> dict:
+    items = snapshot_store.list_experiments()
+    return {"count": len(items), "items": items}
+
+
+@app.post("/api/experiments", status_code=201)
+async def create_experiment(payload: ExperimentCreate) -> dict:
+    _validate_choice(payload.status, EXPERIMENT_STATUSES, "Experiment status")
+    _validate_choice(payload.decision, EXPERIMENT_DECISIONS, "Decision")
+    try:
+        return snapshot_store.create_experiment(
+            idea_id=payload.ideaId,
+            name=payload.name,
+            hypothesis=payload.hypothesis,
+            status=payload.status,
+            decision=payload.decision,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/api/experiments/{experiment_id}")
+async def experiment(experiment_id: int) -> dict:
+    item = snapshot_store.get_experiment(experiment_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Experiment not found.")
+    return item
+
+
+@app.patch("/api/experiments/{experiment_id}")
+async def update_experiment(experiment_id: int, payload: ExperimentUpdate) -> dict:
+    changes = _model_changes(payload)
+    _validate_choice(changes.get("status"), EXPERIMENT_STATUSES, "Experiment status")
+    _validate_choice(changes.get("decision"), EXPERIMENT_DECISIONS, "Decision")
+    item = snapshot_store.update_experiment(experiment_id, changes)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Experiment not found.")
+    return item
