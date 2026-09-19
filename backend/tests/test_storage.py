@@ -284,5 +284,89 @@ def test_patterns_summary_comes_from_persisted_topics_titles_and_types(tmp_path)
     assert patterns["topics"][0]["videos"] == 3
     assert patterns["contentTypes"][0]["type"] == "Short"
     assert patterns["contentTypes"][0]["videos"] == 3
-    assert any(signal["term"] == "beginners" for signal in patterns["titleSignals"])
-    assert any(signal["term"] == "tools beginners" for signal in patterns["titleSignals"])
+    beginners = next(
+        signal for signal in patterns["titleSignals"] if signal["term"] == "beginners"
+    )
+    tools_beginners = next(
+        signal for signal in patterns["titleSignals"] if signal["term"] == "tools beginners"
+    )
+    assert beginners["channels"] == 3
+    assert tools_beginners["channels"] == 3
+
+
+
+def test_title_signals_remove_seo_noise_and_require_multiple_channels(tmp_path):
+    db = tmp_path / "christina_lab.sqlite3"
+    store = SnapshotStore(f"sqlite:///{db}")
+    observed = datetime(2026, 9, 19, 12, 0, tzinfo=timezone.utc)
+
+    rows = [
+        ("v1", "channel-a", "Copy Trading Journal #viral #shortsfeed #trending"),
+        ("v2", "channel-b", "My Copy Trading Journal #explore #ytshorts"),
+        # One channel repeating its own phrase should not create a market signal.
+        ("v3", "channel-c", "Private Edge System"),
+        ("v4", "channel-c", "Private Edge System Explained"),
+    ]
+    for video_id, channel_id, title in rows:
+        store.record_snapshots(
+            [
+                _video(
+                    video_id=video_id,
+                    channel_id=channel_id,
+                    title=title,
+                    published_at=observed - timedelta(hours=6),
+                    content_type="Long-form",
+                    views=1000,
+                )
+            ],
+            observed_at=observed,
+            min_interval_minutes=0,
+        )
+
+    patterns = store.patterns_summary()
+    terms = {signal["term"]: signal for signal in patterns["titleSignals"]}
+
+    assert "copy trading" in terms
+    assert terms["copy trading"]["channels"] == 2
+    assert "trading journal" in terms
+    assert terms["trading journal"]["channels"] == 2
+
+    for noisy in ["viral", "shortsfeed", "trending", "explore", "ytshorts"]:
+        assert noisy not in terms
+
+    assert "private edge" not in terms
+    assert "trading" not in terms
+
+
+def test_content_type_patterns_include_growth_distribution(tmp_path):
+    db = tmp_path / "christina_lab.sqlite3"
+    store = SnapshotStore(f"sqlite:///{db}")
+    published = datetime(2026, 9, 19, 10, 0, tzinfo=timezone.utc)
+    first = datetime(2026, 9, 19, 11, 0, tzinfo=timezone.utc)
+    second = datetime(2026, 9, 19, 12, 0, tzinfo=timezone.utc)
+
+    # One-hour growth rates: 0, 100, 300, 900 views/hour.
+    growth_rates = [0, 100, 300, 900]
+    for index, rate in enumerate(growth_rates, start=1):
+        video_id = f"growth-dist-{index}"
+        base = _video(
+            video_id=video_id,
+            channel_id=f"channel-{index}",
+            title=f"Pattern Video {index}",
+            published_at=published,
+            content_type="Short",
+            views=1000,
+        )
+        store.record_snapshots([base], observed_at=first, min_interval_minutes=0)
+        base["views"] = 1000 + rate
+        store.record_snapshots([base], observed_at=second, min_interval_minutes=0)
+
+    patterns = store.patterns_summary()
+    short = next(row for row in patterns["contentTypes"] if row["type"] == "Short")
+
+    assert short["growthSampleSize"] == 4
+    assert short["positiveGrowthSampleSize"] == 3
+    assert short["positiveGrowthShare"] == 75.0
+    assert short["medianActualGrowthPerHour"] == 200.0
+    # Linear 75th percentile between 300 and 900 = 450.
+    assert short["topQuartileActualGrowthPerHour"] == 450.0
