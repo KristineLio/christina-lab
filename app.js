@@ -320,16 +320,38 @@
     };
   }
 
-  function saveVideo(id) {
-    state.saved.add(id);
-    toast("Saved to Research");
-    render();
+  async function saveVideo(id) {
+    try {
+      const existing = state.notes[id] || { why: "", adapt: "", angle: "" };
+      const item = await apiJson("/api/research/" + encodeURIComponent(id), {
+        method: "PUT",
+        body: existing,
+      });
+      const index = state.savedResearch.findIndex((row) => (row.videoId || row.id) === id);
+      if (index >= 0) state.savedResearch[index] = item;
+      else state.savedResearch.unshift(item);
+      state.saved.add(id);
+      state.notes[id] = { why: item.why || "", adapt: item.adapt || "", angle: item.angle || "" };
+      toast("Saved to Research");
+      render();
+    } catch (error) {
+      toast(error?.message || "Could not save research");
+    }
   }
-  function unsave(id) {
-    state.saved.delete(id);
-    toast("Video removed");
-    render();
+
+  async function unsave(id) {
+    try {
+      await apiJson("/api/research/" + encodeURIComponent(id), { method: "DELETE" });
+      state.saved.delete(id);
+      state.savedResearch = state.savedResearch.filter((row) => (row.videoId || row.id) !== id);
+      delete state.notes[id];
+      toast("Video removed from Saved Research");
+      render();
+    } catch (error) {
+      toast(error?.message || "Could not remove research");
+    }
   }
+
   function ideaFrom(vid) {
     const v = videoById(vid);
     openIdeaModal(v);
@@ -337,22 +359,30 @@
 
   function openIdeaModal(src) {
     const m = $("modal");
+    const sourceNotes = src ? state.notes[src.id] || { why: "", adapt: "", angle: "" } : { why: "", adapt: "", angle: "" };
+    const sourceType = src?.type === "Short" ? "Short" : "Long-form";
     m.hidden = false;
     m.innerHTML = `<div class="modal">
-      <h2 style="margin:0 0 12px;font-size:16px">Create idea</h2>
+      <h2 style="margin:0 0 6px;font-size:16px">Create idea</h2>
+      <p class="meta" style="margin-top:0">${src ? "Source: " + esc(src.title) : "Standalone creator idea"}</p>
       <form class="form" id="ideaForm">
-        <label>Working title <input name="title" required value="${src ? esc("Why " + src.title.replace(/^Why /, "")) : ""}" /></label>
+        <label>Working title <input name="title" required value="${src ? esc(src.title) : ""}" /></label>
         <label>Hook <input name="hook" placeholder="The first line viewers hear" /></label>
-        <label>Topic <input name="topic" value="${src ? esc(src.topic) : ""}" /></label>
-        <label>Content type <select name="type"><option>Short</option><option>Long-form</option></select></label>
-        <label>Angle <input name="angle" /></label>
-        <label>Audience <input name="audience" /></label>
-        <label>Why do you think this video will work?
-          <textarea name="hypothesis" rows="3">Several recent videos using this structure are outperforming channel baselines. I want to test it without copying the original.</textarea>
+        <label>Topic <input name="topic" value="${src ? esc(src.topic || "") : ""}" /></label>
+        <label>Content type
+          <select name="type">
+            <option ${sourceType === "Short" ? "selected" : ""}>Short</option>
+            <option ${sourceType === "Long-form" ? "selected" : ""}>Long-form</option>
+          </select>
         </label>
-        <label>Notes <textarea name="notes" rows="2"></textarea></label>
-        <label>Priority <select name="priority"><option>High</option><option>Med</option><option>Low</option></select></label>
-        <label>Status <select name="status"><option>Inbox</option><option>Researching</option><option>Ready</option></select></label>
+        <label>Angle <input name="angle" value="${esc(sourceNotes.angle || "")}" placeholder="Your differentiated angle" /></label>
+        <label>Audience <input name="audience" /></label>
+        <label>Hypothesis
+          <textarea name="hypothesis" rows="3">${esc(sourceNotes.adapt || "What exactly do you expect this idea to prove?")}</textarea>
+        </label>
+        <label>Notes <textarea name="notes" rows="2">${esc(sourceNotes.why || "")}</textarea></label>
+        <label>Priority <select name="priority"><option>High</option><option selected>Med</option><option>Low</option></select></label>
+        <label>Status <select name="status"><option>Draft</option><option>Ready</option><option>Published</option></select></label>
         <div class="actions"><button class="btn ghost" type="button" id="cancelM">Cancel</button><button class="btn primary" type="submit">Create idea</button></div>
       </form>
     </div>`;
@@ -360,26 +390,106 @@
     m.onclick = (e) => {
       if (e.target === m) m.hidden = true;
     };
-    $("ideaForm").onsubmit = (e) => {
+    $("ideaForm").onsubmit = async (e) => {
       e.preventDefault();
+      const submit = e.submitter;
+      if (submit) submit.disabled = true;
       const f = new FormData(e.target);
-      state.ideas.unshift({
-        id: "idea-" + Date.now(),
-        title: f.get("title"),
-        hook: f.get("hook"),
-        topic: f.get("topic"),
-        type: f.get("type"),
-        sources: src ? 1 : 0,
-        priority: f.get("priority"),
-        created: "Today",
-        status: f.get("status"),
-        hypothesis: f.get("hypothesis"),
-        angle: f.get("angle"),
-        audience: f.get("audience"),
-      });
-      m.hidden = true;
-      toast("Idea created");
+      try {
+        if (src && !state.saved.has(src.id)) {
+          await apiJson("/api/research/" + encodeURIComponent(src.id), {
+            method: "PUT",
+            body: sourceNotes,
+          });
+        }
+        await apiJson("/api/ideas", {
+          method: "POST",
+          body: {
+            sourceVideoId: src?.id || null,
+            title: f.get("title"),
+            hook: f.get("hook"),
+            topic: f.get("topic"),
+            contentType: f.get("type"),
+            angle: f.get("angle"),
+            audience: f.get("audience"),
+            hypothesis: f.get("hypothesis"),
+            notes: f.get("notes"),
+            priority: f.get("priority"),
+            status: f.get("status"),
+          },
+        });
+        m.hidden = true;
+        state.workflowLoaded = false;
+        await loadWorkflowData(true);
+        toast("Idea created and persisted");
+        navigate("/ideas");
+      } catch (error) {
+        toast(error?.message || "Could not create idea");
+        if (submit) submit.disabled = false;
+      }
+    };
+  }
+
+  function openExperimentModal(idea = null) {
+    if (!state.ideas.length) {
+      toast("Create an idea first");
       navigate("/ideas");
+      return;
+    }
+    const selected = idea || state.ideas[0];
+    const m = $("modal");
+    m.hidden = false;
+    m.innerHTML = `<div class="modal">
+      <h2 style="margin:0 0 6px;font-size:16px">Create experiment</h2>
+      <p class="meta" style="margin-top:0">Turn an idea into a measurable test. Results and decisions stay editable after publishing.</p>
+      <form class="form" id="experimentForm">
+        <label>Idea
+          <select name="ideaId" id="experimentIdea">
+            ${state.ideas.map((item) => `<option value="${item.id}" ${String(item.id) === String(selected.id) ? "selected" : ""}>${esc(item.title)}</option>`).join("")}
+          </select>
+        </label>
+        <label>Experiment name <input name="name" required value="${esc(selected.title)}" /></label>
+        <label>Hypothesis <textarea name="hypothesis" rows="3">${esc(selected.hypothesis || "")}</textarea></label>
+        <label>Status <select name="status"><option>Draft</option><option>Ready</option><option>Published</option></select></label>
+        <div class="actions"><button class="btn ghost" type="button" id="cancelM">Cancel</button><button class="btn primary" type="submit">Create experiment</button></div>
+      </form>
+    </div>`;
+    $("cancelM").onclick = () => (m.hidden = true);
+    m.onclick = (e) => {
+      if (e.target === m) m.hidden = true;
+    };
+    $("experimentIdea").onchange = (e) => {
+      const nextIdea = state.ideas.find((item) => String(item.id) === String(e.target.value));
+      if (!nextIdea) return;
+      const form = $("experimentForm");
+      form.name.value = nextIdea.title;
+      form.hypothesis.value = nextIdea.hypothesis || "";
+    };
+    $("experimentForm").onsubmit = async (e) => {
+      e.preventDefault();
+      const submit = e.submitter;
+      if (submit) submit.disabled = true;
+      const f = new FormData(e.target);
+      try {
+        const experiment = await apiJson("/api/experiments", {
+          method: "POST",
+          body: {
+            ideaId: Number(f.get("ideaId")),
+            name: f.get("name"),
+            hypothesis: f.get("hypothesis"),
+            status: f.get("status"),
+            decision: "UNDECIDED",
+          },
+        });
+        m.hidden = true;
+        state.workflowLoaded = false;
+        await loadWorkflowData(true);
+        toast("Experiment created");
+        navigate("/experiment/" + experiment.id);
+      } catch (error) {
+        toast(error?.message || "Could not create experiment");
+        if (submit) submit.disabled = false;
+      }
     };
   }
 
