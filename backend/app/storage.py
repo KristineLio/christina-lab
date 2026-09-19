@@ -15,11 +15,25 @@ SNAPSHOT_MIN_INTERVAL_MINUTES = 15
 
 _TITLE_STOPWORDS = {
     "about", "after", "again", "against", "also", "been", "before", "being",
-    "bitcoin", "crypto", "cryptocurrency", "from", "have", "into", "just",
-    "live", "more", "most", "over", "september", "that", "their", "them",
-    "then", "there", "these", "they", "this", "those", "today", "trading",
-    "video", "what", "when", "where", "which", "while", "with", "your",
-    "you", "why", "shorts", "short", "2026",
+    "from", "have", "into", "just", "more", "most", "over", "september",
+    "that", "their", "them", "then", "there", "these", "they", "this",
+    "those", "today", "video", "what", "when", "where", "which", "while",
+    "with", "your", "you", "why", "2026",
+}
+
+# Common YouTube/SEO tokens that create noisy "patterns" but rarely describe
+# the content idea itself. Hashtag forms are stripped before tokenization too.
+_TITLE_SEO_NOISE = {
+    "explore", "foryou", "foryoupage", "fyp", "reels", "short", "shorts",
+    "shortsfeed", "subscribe", "trending", "viral", "youtube", "youtubeshorts",
+    "ytshorts",
+}
+
+# These words can be useful inside phrases ("copy trading", "trading journal")
+# but are too broad to surface as meaningful one-word title patterns.
+_TITLE_GENERIC_SINGLETONS = {
+    "bitcoin", "btc", "crypto", "cryptocurrency", "live", "market", "markets",
+    "trade", "trader", "traders", "trading",
 }
 
 
@@ -41,18 +55,61 @@ def _median(values: list[float | int]) -> float:
     return float(median(values)) if values else 0.0
 
 
+def _percentile(values: list[float | int], percentile: float) -> float:
+    """Linear percentile that behaves sensibly for small local datasets."""
+    if not values:
+        return 0.0
+    ordered = sorted(float(value) for value in values)
+    if len(ordered) == 1:
+        return ordered[0]
+    position = max(0.0, min(float(percentile), 1.0)) * (len(ordered) - 1)
+    lower = int(position)
+    upper = min(lower + 1, len(ordered) - 1)
+    fraction = position - lower
+    return ordered[lower] + (ordered[upper] - ordered[lower]) * fraction
+
+
 def _title_terms(title: str) -> set[str]:
+    """Extract literal but higher-signal title words/phrases.
+
+    We remove generic YouTube hashtag/SEO noise, keep domain words available
+    for phrases, and suppress broad one-word terms such as "trading".
+    """
+    text = (title or "").lower()
+
+    # Remove noisy hashtags as whole units before punctuation is discarded.
+    text = re.sub(
+        r"#(?:explore|foryou|foryoupage|fyp|reels|shorts?|shortsfeed|subscribe|"
+        r"trending|viral|youtube|youtubeshorts|ytshorts)\\b",
+        " ",
+        text,
+        flags=re.IGNORECASE,
+    )
+
     tokens = [
-        token.lower()
-        for token in re.findall(r"[A-Za-z0-9]+", title or "")
-        if len(token) >= 4
+        token
+        for token in re.findall(r"[a-z0-9]+", text)
+        if len(token) >= 3
+        and token not in _TITLE_STOPWORDS
+        and token not in _TITLE_SEO_NOISE
+        and not token.isdigit()
     ]
-    tokens = [token for token in tokens if token not in _TITLE_STOPWORDS and not token.isdigit()]
-    terms = set(tokens)
+
+    terms = {
+        token
+        for token in tokens
+        if token not in _TITLE_GENERIC_SINGLETONS
+    }
+
     for first, second in zip(tokens, tokens[1:]):
-        phrase = f"{first} {second}"
-        if first != second:
-            terms.add(phrase)
+        if first == second:
+            continue
+        # Avoid phrases made entirely from generic category words such as
+        # "crypto trading", while preserving "copy trading" / "trading journal".
+        if first in _TITLE_GENERIC_SINGLETONS and second in _TITLE_GENERIC_SINGLETONS:
+            continue
+        terms.add(f"{first} {second}")
+
     return terms
 
 
@@ -639,6 +696,7 @@ class SnapshotStore:
                 """
                 SELECT
                     v.video_id,
+                    v.channel_id,
                     v.title,
                     v.content_type,
                     s.views,
@@ -702,48 +760,75 @@ class SnapshotStore:
 
         content_patterns = []
         for content_type, bucket in by_type.items():
+            growth_values = growth_by_type.get(content_type, [])
+            positive_growth = [value for value in growth_values if value > 0]
             content_patterns.append(
                 {
                     "type": content_type,
                     "videos": bucket["videos"],
                     "medianLatestViews": int(round(_median(bucket["views"]))),
                     "medianEngagement": round(_median(bucket["engagement"]), 2),
-                    "medianActualGrowthPerHour": round(
-                        _median(growth_by_type.get(content_type, [])), 2
+                    "medianActualGrowthPerHour": round(_median(growth_values), 2),
+                    "topQuartileActualGrowthPerHour": round(
+                        _percentile(growth_values, 0.75), 2
                     ),
-                    "growthSampleSize": len(growth_by_type.get(content_type, [])),
+                    "growthSampleSize": len(growth_values),
+                    "positiveGrowthSampleSize": len(positive_growth),
+                    "positiveGrowthShare": round(
+                        len(positive_growth) / len(growth_values) * 100, 1
+                    )
+                    if growth_values
+                    else None,
                 }
             )
         content_patterns.sort(key=lambda row: row["videos"], reverse=True)
 
         latest_analysis_by_video = {row["video_id"]: row for row in latest_analyses}
-        term_map: dict[str, dict] = defaultdict(lambda: {"videos": set(), "opportunity": []})
+        term_map: dict[str, dict] = defaultdict(
+            lambda: {"videos": set(), "channels": set(), "opportunityByVideo": {}}
+        )
         for row in video_rows:
             for term in _title_terms(row["title"]):
                 bucket = term_map[term]
                 bucket["videos"].add(row["video_id"])
+                bucket["channels"].add(row["channel_id"])
                 analysis = latest_analysis_by_video.get(row["video_id"])
                 if analysis and analysis["opportunity"] is not None:
-                    bucket["opportunity"].append(int(analysis["opportunity"]))
+                    bucket["opportunityByVideo"][row["video_id"]] = int(
+                        analysis["opportunity"]
+                    )
 
         title_signals = []
         for term, bucket in term_map.items():
-            count = len(bucket["videos"])
-            if count < 2:
+            video_count = len(bucket["videos"])
+            channel_count = len(bucket["channels"])
+
+            # A repeated phrase from one prolific channel is not yet a market
+            # pattern. Require evidence across at least two independent channels.
+            if video_count < 2 or channel_count < 2:
                 continue
+
+            opportunity_values = list(bucket["opportunityByVideo"].values())
             title_signals.append(
                 {
                     "term": term,
-                    "videos": count,
+                    "videos": video_count,
+                    "channels": channel_count,
                     "avgOpportunity": round(
-                        sum(bucket["opportunity"]) / len(bucket["opportunity"]), 1
+                        sum(opportunity_values) / len(opportunity_values), 1
                     )
-                    if bucket["opportunity"]
+                    if opportunity_values
                     else None,
+                    "opportunitySampleSize": len(opportunity_values),
                 }
             )
         title_signals.sort(
-            key=lambda row: (row["videos"], row["avgOpportunity"] or 0, len(row["term"])),
+            key=lambda row: (
+                row["channels"],
+                row["videos"],
+                row["avgOpportunity"] or 0,
+                len(row["term"]),
+            ),
             reverse=True,
         )
 
@@ -764,7 +849,7 @@ class SnapshotStore:
             )[:8],
             "notes": {
                 "topicPatterns": "Based on real Discover searches stored after Milestone 5.",
-                "titleSignals": "Repeated words/phrases from tracked video titles; no AI labeling.",
+                "titleSignals": "SEO-cleaned literal words/phrases repeated across at least two different channels; no AI labeling.",
                 "growthPatterns": "Uses only videos with at least two stored snapshots.",
             },
         }
