@@ -15,25 +15,27 @@ SNAPSHOT_MIN_INTERVAL_MINUTES = 15
 
 _TITLE_STOPWORDS = {
     "about", "after", "again", "against", "also", "been", "before", "being",
-    "from", "have", "into", "just", "more", "most", "over", "september",
-    "that", "their", "them", "then", "there", "these", "they", "this",
-    "those", "today", "video", "what", "when", "where", "which", "while",
+    "best", "for", "from", "have", "how", "into", "just", "latest", "more",
+    "most", "new", "our", "over", "real", "september", "that", "the",
+    "their", "them", "then", "there", "these", "they", "this", "those",
+    "today", "top", "video", "what", "when", "where", "which", "while",
     "with", "your", "you", "why", "2026",
 }
 
 # Common YouTube/SEO tokens that create noisy "patterns" but rarely describe
 # the content idea itself. Hashtag forms are stripped before tokenization too.
 _TITLE_SEO_NOISE = {
-    "dubai", "explore", "foryou", "foryoupage", "fyp", "reels", "short",
-    "shorts", "shortsfeed", "subscribe", "trending", "viral", "youtube",
-    "youtubeshorts", "ytshorts",
+    "dubai", "explore", "foryou", "foryoupage", "fyp", "india", "london",
+    "reels", "short", "shorts", "shortsfeed", "singapore", "subscribe",
+    "trending", "uk", "usa", "viral", "youtube", "youtubeshorts", "ytshorts",
 }
 
 # These words can be useful inside phrases ("copy trading", "trading journal")
 # but are too broad to surface as meaningful one-word title patterns.
 _TITLE_GENERIC_SINGLETONS = {
-    "bitcoin", "btc", "crypto", "cryptocurrency", "live", "market", "markets",
-    "trade", "trader", "traders", "trading",
+    "bitcoin", "btc", "crypto", "cryptocurrency", "day", "gold", "live",
+    "market", "markets", "motivation", "news", "setup", "stock", "stockmarket",
+    "strategy", "trade", "trader", "traders", "trading", "update",
 }
 
 _TITLE_NORMALIZATIONS = {
@@ -41,6 +43,7 @@ _TITLE_NORMALIZATIONS = {
     "artificialintelligence": ("artificial", "intelligence"),
     "copytrading": ("copy", "trading"),
     "daytrading": ("day", "trading"),
+    "stockmarket": ("stock", "market"),
     "tradingjournal": ("trading", "journal"),
 }
 
@@ -821,9 +824,14 @@ class SnapshotStore:
                 continue
 
             opportunity_values = list(bucket["opportunityByVideo"].values())
+            is_phrase = " " in term
+            # Single words are only kept when they survive the stricter
+            # stopword/generic filters above. Phrases are intentionally ranked
+            # ahead of single words because they carry more creative meaning.
             title_signals.append(
                 {
                     "term": term,
+                    "termType": "phrase" if is_phrase else "specific-word",
                     "videos": video_count,
                     "channels": channel_count,
                     "avgOpportunity": round(
@@ -836,6 +844,7 @@ class SnapshotStore:
             )
         title_signals.sort(
             key=lambda row: (
+                1 if row["termType"] == "phrase" else 0,
                 row["channels"],
                 row["videos"],
                 row["avgOpportunity"] or 0,
@@ -861,7 +870,7 @@ class SnapshotStore:
             )[:8],
             "notes": {
                 "topicPatterns": "Based on real Discover searches stored after Milestone 5.",
-                "titleSignals": "SEO-cleaned literal words/phrases repeated across at least two different channels; no AI labeling.",
+                "titleSignals": "Phrase-first, SEO-cleaned literal title signals repeated across at least two different channels; generic words and location noise are suppressed; no AI labeling.",
                 "growthPatterns": "Uses only videos with at least two stored snapshots.",
             },
         }
