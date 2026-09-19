@@ -1303,7 +1303,7 @@ class SnapshotStore:
         idea_id: int,
         name: str | None = None,
         hypothesis: str | None = None,
-        status: str = "Draft",
+        status: str | None = None,
         decision: str = "UNDECIDED",
     ) -> dict:
         now = _iso(_utc_now())
@@ -1311,6 +1311,10 @@ class SnapshotStore:
             idea = db.execute("SELECT * FROM ideas WHERE id = ?", (idea_id,)).fetchone()
             if idea is None:
                 raise ValueError("Idea not found.")
+
+            inherited_status = status or (
+                idea["status"] if idea["status"] in {"Draft", "Ready", "Published"} else "Draft"
+            )
 
             cursor = db.execute(
                 """
@@ -1326,7 +1330,7 @@ class SnapshotStore:
                     idea["topic"],
                     idea["content_type"],
                     hypothesis if hypothesis is not None else idea["hypothesis"],
-                    status,
+                    inherited_status,
                     decision,
                     now,
                     now,
