@@ -1,14 +1,21 @@
+/*
+ * CHRISTINA LAB — VISUAL SYSTEM
+ *
+ * Dark-neutral creator intelligence interface.
+ * Keep contrast high enough for long research sessions: dark, not blacked-out.
+ */
+
 :root {
-  --bg: #121418;
-  --bg2: #181b21;
-  --surf: #1c2027;
-  --surf2: #232833;
-  --line: #2c323c;
-  --text: #e8eaee;
-  --muted: #9aa3b2;
-  --dim: #6d7584;
-  --accent: #5b8def;
-  --cyan: #7aa8b8;
+  --bg: #181c23;
+  --bg2: #1f242d;
+  --surf: #252b35;
+  --surf2: #2d3542;
+  --line: #3b4553;
+  --text: #f3f6fa;
+  --muted: #b7c0ce;
+  --dim: #8d98a8;
+  --accent: #6f9fff;
+  --cyan: #8eb9c7;
   --go: #3dba7a;
   --warn: #d4a017;
   --hold: #d46a6a;
@@ -39,10 +46,10 @@ a { color: var(--accent); text-decoration: none; }
   color: var(--muted); font-size: 13px;
 }
 .nav a:hover { background: var(--surf); color: var(--text); }
-.nav a.active { background: #243044; color: var(--text); }
+.nav a.active { background: #2d3c52; color: var(--text); }
 .nav svg { width: 16px; height: 16px; opacity: .8; }
 .profile { border-top: 1px solid var(--line); padding: 12px; display: flex; gap: 8px; align-items: center; }
-.avatar { width: 28px; height: 28px; border-radius: 50%; background: #2a3344; }
+.avatar { width: 28px; height: 28px; border-radius: 50%; background: #354157; }
 .profile small { display: block; color: var(--dim); font-size: 11px; }
 .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .top {
@@ -76,7 +83,7 @@ a { color: var(--accent); text-decoration: none; }
 
 .opp { display: grid; grid-template-columns: 88px 1fr auto; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--line); align-items: center; }
 .opp:last-child { border-bottom: 0; }
-.thumb { width: 88px; height: 50px; object-fit: cover; border-radius: 4px; background: #2a3140; display: block; }
+.thumb { width: 88px; height: 50px; object-fit: cover; border-radius: 4px; background: #343d4d; display: block; }
 .t { font-size: 13px; font-weight: 500; }
 .meta { font-size: 12px; color: var(--muted); margin-top: 4px; display: flex; flex-wrap: wrap; gap: 8px; }
 .actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
@@ -84,8 +91,8 @@ a { color: var(--accent); text-decoration: none; }
   background: var(--surf2); border: 1px solid var(--line); border-radius: 6px;
   padding: 6px 10px; font-size: 12px; color: var(--text);
 }
-.btn:hover { border-color: #3d4656; }
-.btn.primary { background: #2a3d63; border-color: #3a5384; color: #d7e4ff; }
+.btn:hover { border-color: #566274; }
+.btn.primary { background: #304a78; border-color: #4d6da8; color: #eef4ff; }
 .btn.ghost { background: transparent; }
 
 .badge { font-size: 11px; padding: 2px 7px; border-radius: 4px; border: 1px solid var(--line); color: var(--muted); }
@@ -132,7 +139,7 @@ a { color: var(--accent); text-decoration: none; }
 .icard .hook { color: var(--muted); margin: 6px 0; }
 
 .tabs { display: flex; gap: 4px; margin-bottom: 12px; }
-.tabs button.active { background: #2a3d63; border-color: #3a5384; }
+.tabs button.active { background: #304a78; border-color: #4d6da8; }
 
 .form { display: grid; gap: 8px; }
 .form label { font-size: 12px; color: var(--muted); display: grid; gap: 4px; }
@@ -163,11 +170,11 @@ a { color: var(--accent); text-decoration: none; }
 .tip { border-bottom: 1px dashed var(--dim); cursor: help; }
 
 .video-head { display: grid; grid-template-columns: 280px 1fr; gap: 16px; margin-bottom: 16px; }
-.video-head img { width: 100%; height: 158px; object-fit: cover; border-radius: 8px; background: #2a3140; }
+.video-head img { width: 100%; height: 158px; object-fit: cover; border-radius: 8px; background: #343d4d; }
 .why { padding: 14px; }
 .why li { margin: 6px 0; color: var(--muted); font-size: 13px; }
 
-.skel { background: linear-gradient(90deg, #1c2027, #262b34, #1c2027); background-size: 200% 100%; animation: s 1.2s infinite; height: 14px; border-radius: 4px; margin: 8px 0; }
+.skel { background: linear-gradient(90deg, #252b35, #303845, #252b35); background-size: 200% 100%; animation: s 1.2s infinite; height: 14px; border-radius: 4px; margin: 8px 0; }
 @keyframes s { to { background-position: -200% 0; } }
 
 @media (max-width: 960px) {
