@@ -24,9 +24,9 @@ _TITLE_STOPWORDS = {
 # Common YouTube/SEO tokens that create noisy "patterns" but rarely describe
 # the content idea itself. Hashtag forms are stripped before tokenization too.
 _TITLE_SEO_NOISE = {
-    "explore", "foryou", "foryoupage", "fyp", "reels", "short", "shorts",
-    "shortsfeed", "subscribe", "trending", "viral", "youtube", "youtubeshorts",
-    "ytshorts",
+    "dubai", "explore", "foryou", "foryoupage", "fyp", "reels", "short",
+    "shorts", "shortsfeed", "subscribe", "trending", "viral", "youtube",
+    "youtubeshorts", "ytshorts",
 }
 
 # These words can be useful inside phrases ("copy trading", "trading journal")
@@ -34,6 +34,14 @@ _TITLE_SEO_NOISE = {
 _TITLE_GENERIC_SINGLETONS = {
     "bitcoin", "btc", "crypto", "cryptocurrency", "live", "market", "markets",
     "trade", "trader", "traders", "trading",
+}
+
+_TITLE_NORMALIZATIONS = {
+    "aitools": ("ai", "tools"),
+    "artificialintelligence": ("artificial", "intelligence"),
+    "copytrading": ("copy", "trading"),
+    "daytrading": ("day", "trading"),
+    "tradingjournal": ("trading", "journal"),
 }
 
 
@@ -86,14 +94,18 @@ def _title_terms(title: str) -> set[str]:
         flags=re.IGNORECASE,
     )
 
-    tokens = [
-        token
-        for token in re.findall(r"[a-z0-9]+", text)
-        if len(token) >= 3
-        and token not in _TITLE_STOPWORDS
-        and token not in _TITLE_SEO_NOISE
-        and not token.isdigit()
-    ]
+    raw_tokens = re.findall(r"[a-z0-9]+", text)
+    tokens: list[str] = []
+    for raw_token in raw_tokens:
+        expanded = _TITLE_NORMALIZATIONS.get(raw_token, (raw_token,))
+        for token in expanded:
+            if (
+                (len(token) >= 3 or token == "ai")
+                and token not in _TITLE_STOPWORDS
+                and token not in _TITLE_SEO_NOISE
+                and not token.isdigit()
+            ):
+                tokens.append(token)
 
     terms = {
         token
