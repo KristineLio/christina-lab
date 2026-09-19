@@ -1,3 +1,15 @@
+/*
+ * CHRISTINA LAB — MOCK DATA LAYER
+ *
+ * This file contains the fake/demo YouTube videos, saved research seeds,
+ * content ideas, experiments, and Christina's personal-video results used
+ * to make the frontend prototype feel complete.
+ *
+ * IMPORTANT: this is not production data.
+ * During backend integration, these objects will be replaced by real data
+ * from the YouTube APIs and the Christina Lab database.
+ */
+
 window.CL_DATA = (function () {
   const thumb = (alt) => ({ src: "thumb.jpg", alt });
   const videos = [
