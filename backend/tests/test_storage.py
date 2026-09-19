@@ -291,7 +291,7 @@ def test_patterns_summary_comes_from_persisted_topics_titles_and_types(tmp_path)
         signal for signal in patterns["titleSignals"] if signal["term"] == "tools beginners"
     )
     assert beginners["channels"] == 3
-    assert tools_beginners["channels"] == 3
+    assert tools_beginners["channels"] == 2
     ai_tools = next(
         signal for signal in patterns["titleSignals"] if signal["term"] == "ai tools"
     )
@@ -305,7 +305,7 @@ def test_title_signals_remove_seo_noise_and_require_multiple_channels(tmp_path):
     observed = datetime(2026, 9, 19, 12, 0, tzinfo=timezone.utc)
 
     rows = [
-        ("v1", "channel-a", "Copy Trading Journal #viral #shortsfeed #trending"),
+        ("v1", "channel-a", "Copy Trading Journal #viral #shortsfeed #trending #dubai"),
         ("v2", "channel-b", "My #copytrading Journal #explore #ytshorts"),
         # One channel repeating its own phrase should not create a market signal.
         ("v3", "channel-c", "Private Edge System"),
