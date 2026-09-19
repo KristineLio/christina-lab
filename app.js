@@ -52,6 +52,12 @@
     niches: "trading, AI tools, build in public",
     liveVideos: restoredLiveSession?.videos || [],
     apiError: "",
+    dashboardData: null,
+    dashboardLoading: false,
+    dashboardError: "",
+    patternsData: null,
+    patternsLoading: false,
+    patternsError: "",
   };
 
   function writeLiveSession() {
@@ -141,15 +147,74 @@
     return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">${d}</svg>`;
   }
 
+  function ageLabel(hours) {
+    const value = Number(hours || 0);
+    if (value < 1) return "<1h";
+    if (value < 24) return Math.round(value) + "h";
+    if (value < 24 * 30) return Math.round(value / 24) + "d";
+    return Math.round(value / (24 * 30)) + "mo";
+  }
+
+  async function fetchJson(path) {
+    const response = await fetch(API_BASE + path);
+    if (!response.ok) {
+      let message = "Christina Lab backend could not load this data.";
+      try {
+        const payload = await response.json();
+        if (payload.detail) message = payload.detail;
+      } catch (_) {}
+      throw new Error(message);
+    }
+    return response.json();
+  }
+
+  async function loadDashboardData(force = false) {
+    if (state.dashboardLoading || (state.dashboardData && !force)) return;
+    state.dashboardLoading = true;
+    state.dashboardError = "";
+    if ((state.route.split("?")[0] || "/") === "/") render();
+    try {
+      state.dashboardData = await fetchJson("/api/dashboard");
+    } catch (error) {
+      state.dashboardError = error?.message || "Could not load persisted dashboard data.";
+    } finally {
+      state.dashboardLoading = false;
+      if ((state.route.split("?")[0] || "/") === "/") render();
+    }
+  }
+
+  async function loadPatternsData(force = false) {
+    if (state.patternsLoading || (state.patternsData && !force)) return;
+    state.patternsLoading = true;
+    state.patternsError = "";
+    if (state.route.split("?")[0] === "/patterns") render();
+    try {
+      state.patternsData = await fetchJson("/api/patterns");
+    } catch (error) {
+      state.patternsError = error?.message || "Could not load persisted pattern data.";
+    } finally {
+      state.patternsLoading = false;
+      if (state.route.split("?")[0] === "/patterns") render();
+    }
+  }
+
+  function loadRouteData(path = state.route) {
+    const clean = String(path || "/").split("?")[0] || "/";
+    if (clean === "/") loadDashboardData();
+    if (clean === "/patterns") loadPatternsData();
+  }
+
   function navigate(path) {
     state.route = path;
     location.hash = path === "/" ? "" : path;
     render();
+    loadRouteData(path);
   }
 
   window.addEventListener("hashchange", () => {
     state.route = location.hash.slice(1) || "/";
     render();
+    loadRouteData(state.route);
   });
 
   document.addEventListener("keydown", (e) => {
@@ -381,6 +446,8 @@
 
       const payload = await response.json();
       state.liveVideos = Array.isArray(payload.videos) ? payload.videos : [];
+      state.dashboardData = null;
+      state.patternsData = null;
       writeLiveSession();
     } catch (error) {
       state.liveVideos = [];
@@ -392,73 +459,82 @@
   }
 
   function dash() {
-    const opps = D.videos.slice(0, 5);
-    const pipe = ["Inbox", "Researching", "Ready", "Recorded", "Published"];
+    if (state.dashboardLoading && !state.dashboardData) {
+      return `<div class="card" style="padding:16px"><div class="skel"></div><div class="skel"></div><div class="skel"></div></div>`;
+    }
+    if (state.dashboardError && !state.dashboardData) {
+      return `<div class="empty"><h3>Couldn't load the research dashboard</h3><p>${esc(state.dashboardError)}</p><button class="btn primary" id="retryDashboard">Retry</button></div>`;
+    }
+
+    const d = state.dashboardData;
+    if (!d) {
+      return `<div class="empty"><h3>Loading real research data…</h3><p>The Dashboard now reads from Christina Lab's persisted SQLite research history.</p></div>`;
+    }
+
+    const m = d.metrics || {};
+    const opportunities = Array.isArray(d.topOpportunities) ? d.topOpportunities : [];
+    const growth = Array.isArray(d.fastestActualGrowth) ? d.fastestActualGrowth : [];
+    const mix = Array.isArray(d.contentMix) ? d.contentMix : [];
+    const maturity = d.dataMaturity || {};
+
     return `
-      <div class="loop">Discover → Analyze → Save → Create Idea → Publish → Measure → <b>Learn</b></div>
-      <div style="font-size:22px;font-weight:600">Good afternoon, Christina</div>
-      <p class="sub">Here are today's strongest content signals.</p>
+      <div class="loop">Discover → Analyze → Snapshot → Compare → <b>Learn</b></div>
+      <div style="font-size:22px;font-weight:600">Christina Lab research dashboard</div>
+      <p class="sub">Real metrics from your local research database — no demo counters.</p>
+
       <div class="metrics">
-        <div class="metric"><label>Videos Scanned</label><div class="val num">1,284</div><div class="sec">+186 today</div></div>
-        <div class="metric"><label>Outliers Found</label><div class="val num">37</div><div class="sec">12 strong</div></div>
-        <div class="metric"><label>Saved Research</label><div class="val num">${state.saved.size}</div><div class="sec">5 added this week</div></div>
-        <div class="metric"><label>Active Experiments</label><div class="val num">6</div><div class="sec">2 awaiting results</div></div>
+        <div class="metric"><label>Videos Tracked</label><div class="val num">${fmt(m.videosTracked || 0)}</div><div class="sec">unique public videos stored</div></div>
+        <div class="metric"><label>Snapshots Stored</label><div class="val num">${fmt(m.snapshotsStored || 0)}</div><div class="sec">real metric observations</div></div>
+        <div class="metric"><label>Growth Histories</label><div class="val num">${fmt(m.videosWithMultipleSnapshots || 0)}</div><div class="sec">videos with 2+ observations</div></div>
+        <div class="metric"><label>Analyzed Candidates</label><div class="val num">${fmt(m.analyzedCandidates || 0)}</div><div class="sec">${fmt(m.topicsTracked || 0)} search topics persisted</div></div>
       </div>
+
       <div class="card">
-        <div class="card-h"><h2>Today's Opportunities</h2><p>Videos showing unusually strong early performance.</p></div>
-        ${opps.map((v) => oppRow(v)).join("")}
+        <div class="card-h">
+          <h2>Strongest Persisted Opportunities</h2>
+          <p>Latest real Opportunity Score stored for each analyzed video.</p>
+        </div>
+        ${opportunities.length
+          ? opportunities.map((v) => `
+            <div class="opp">
+              ${img("Thumbnail for " + v.title, "thumb", v.thumbnail)}
+              <div>
+                <div class="t">${esc(v.title)}</div>
+                <div class="meta">${esc(v.channel)} · ${esc(v.type)} · ${ageLabel(v.ageHours)} · ${fmt(v.views)} views · ${fmt(v.viewsDay)} / 24h pace · ${Number(v.engagement || 0).toFixed(2)}% eng · search: ${esc(v.topic || "—")}</div>
+              </div>
+              <div class="actions">
+                <span class="num"><b>${v.opportunity}/100</b></span>
+                <span class="outlier num">${v.outlier == null ? "—" : Number(v.outlier).toFixed(1) + "×"}</span>
+                <span class="badge ${v.baselineMethod === "historical-snapshot-median" ? "strong" : ""}">${v.baselineMethod === "historical-snapshot-median" ? "Historical" : "Estimated"}</span>
+              </div>
+            </div>`).join("")
+          : `<div class="empty"><p>No persisted Opportunity Scores yet. Run a fresh Discover search after Milestone 5 and they will appear here.</p><button class="btn primary" data-go="/discover">Open Discover</button></div>`}
       </div>
+
       <div class="grid2">
         <div class="card">
-          <div class="card-h"><h2>Fastest Growing</h2></div>
-          <div class="rank" style="color:var(--dim)"><span>Video</span><span>Age</span><span>Views/hour</span><span>Momentum</span></div>
-          ${D.videos
-            .slice()
-            .sort((a, b) => b.viewsHour - a.viewsHour)
-            .slice(0, 5)
-            .map(
-              (v) =>
-                `<div class="rank"><span>${v.title}</span><span>${v.age}</span><span class="num">${fmt(v.viewsHour)}</span><span>${v.momentum}</span></div>`
-            )
-            .join("")}
+          <div class="card-h"><h2>Fastest Actual Growth</h2><p>Measured between stored snapshots, not extrapolated.</p></div>
+          ${growth.length
+            ? `<div class="rank" style="color:var(--dim)"><span>Video</span><span>Type</span><span>Δ views</span><span>Actual / hour</span></div>` +
+              growth.map((v) => `<div class="rank"><span>${esc(v.title)}</span><span>${esc(v.type)}</span><span class="num">+${fmt(v.deltaViews)}</span><span class="num">${fmt(v.actualViewsHour)}/h</span></div>`).join("")
+            : `<div class="empty"><p>No actual growth pairs yet. Revisit tracked videos at least 15 minutes later to create second snapshots.</p></div>`}
         </div>
+
         <div class="card">
-          <div class="card-h"><h2>Biggest Outliers</h2></div>
-          <div class="rank" style="color:var(--dim)"><span>Video</span><span>Channel</span><span>Baseline</span><span>Outlier</span></div>
-          ${D.videos
-            .slice()
-            .sort((a, b) => b.outlier - a.outlier)
-            .slice(0, 5)
-            .map(
-              (v) =>
-                `<div class="rank"><span>${v.title}</span><span>${v.channel}</span><span class="num">${fmt(v.baseline)}</span><span class="outlier num">${v.outlier == null ? "Baseline pending" : v.outlier.toFixed(1) + "×"}</span></div>`
-            )
-            .join("")}
+          <div class="card-h"><h2>Dataset Mix</h2><p>What Christina Lab has actually observed.</p></div>
+          ${mix.length
+            ? mix.map((row) => `<div class="rank"><span>${esc(row.type)}</span><span></span><span></span><span class="num">${fmt(row.count)} videos</span></div>`).join("")
+            : `<div class="empty"><p>No tracked videos yet.</p></div>`}
         </div>
       </div>
-      <div class="card" style="margin-top:12px">
-        <div class="card-h"><h2>Content Pipeline</h2></div>
-        <div class="pipe">
-          ${pipe
-            .map((s) => {
-              const n = state.ideas.filter((i) => i.status === s).length;
-              return `<div class="col"><div class="sec">${s}</div><div class="n num">${n}</div></div>`;
-            })
-            .join("")}
-        </div>
-      </div>
-      <div class="card" style="margin-top:12px">
-        <div class="card-h"><h2>Recent Experiments</h2></div>
-        ${state.experiments
-          .slice(0, 4)
-          .map(
-            (e) =>
-              `<div class="opp" style="grid-template-columns:1fr auto">
-                <div><div class="t">${e.name}</div><div class="meta">${e.status} · 24h ${e.v24 ? fmt(e.v24) : "—"} views</div></div>
-                <span class="badge ${e.decision.toLowerCase()}">${e.decision}</span>
-              </div>`
-          )
-          .join("")}
+
+      <div class="card" style="margin-top:12px;padding:14px">
+        <h2 style="margin:0 0 6px;font-size:14px">Data maturity</h2>
+        <p class="meta" style="margin:0">
+          ${fmt(m.historicalBaselinesReady || 0)} videos have produced a stored historical same-age baseline so far ·
+          ${fmt(maturity.videosWithMultipleSnapshots || 0)} videos have real growth history ·
+          ${fmt(maturity.needsMoreHistory || 0)} tracked videos still need another observation.
+        </p>
       </div>`;
   }
 
@@ -920,37 +996,68 @@
   }
 
   function patterns() {
+    if (state.patternsLoading && !state.patternsData) {
+      return `<div class="card" style="padding:16px"><div class="skel"></div><div class="skel"></div><div class="skel"></div></div>`;
+    }
+    if (state.patternsError && !state.patternsData) {
+      return `<div class="empty"><h3>Couldn't load persisted patterns</h3><p>${esc(state.patternsError)}</p><button class="btn primary" id="retryPatterns">Retry</button></div>`;
+    }
+
+    const p = state.patternsData;
+    if (!p) {
+      return `<div class="empty"><h3>Loading real patterns…</h3><p>Patterns are now calculated from persisted research rather than mock examples.</p></div>`;
+    }
+
+    const dataset = p.dataset || {};
+    const topics = Array.isArray(p.topics) ? p.topics : [];
+    const types = Array.isArray(p.contentTypes) ? p.contentTypes : [];
+    const terms = Array.isArray(p.titleSignals) ? p.titleSignals : [];
+    const growth = Array.isArray(p.actualGrowthLeaders) ? p.actualGrowthLeaders : [];
+
     return `
-      <p class="sub">Repeated signals from market research and your own results.</p>
+      <p class="sub">Repeated signals calculated from Christina Lab's persisted YouTube research. No invented hook labels or fake percentages.</p>
+
+      <div class="metrics">
+        <div class="metric"><label>Videos in Dataset</label><div class="val num">${fmt(dataset.videosTracked || 0)}</div></div>
+        <div class="metric"><label>Snapshots</label><div class="val num">${fmt(dataset.snapshotsStored || 0)}</div></div>
+        <div class="metric"><label>Analyzed Candidates</label><div class="val num">${fmt(dataset.analyzedCandidates || 0)}</div></div>
+        <div class="metric"><label>Growth Pairs</label><div class="val num">${fmt(dataset.growthPairs || 0)}</div><div class="sec">videos with 2+ snapshots</div></div>
+      </div>
+
       <div class="grid2">
-        <div class="card"><div class="card-h"><h2>Rising Topics</h2></div>
-          ${[
-            ["AI agents", "+42%"],
-            ["Trading psychology", "+18%"],
-            ["Build in public", "+31%"],
-            ["Copy Trading", "+24%"],
-          ]
-            .map((r) => `<div class="rank"><span>${r[0]}</span><span></span><span></span><span class="outlier">${r[1]} mentions</span></div>`)
-            .join("")}
+        <div class="card">
+          <div class="card-h"><h2>Search Topic Signals</h2><p>Based on real Discover searches persisted since Milestone 5.</p></div>
+          ${topics.length
+            ? topics.map((row) => `<div class="rank"><span>${esc(row.topic)}</span><span>${fmt(row.videos)} videos</span><span>avg opp ${row.avgOpportunity == null ? "—" : Number(row.avgOpportunity).toFixed(1)}</span><span class="outlier">${row.medianOutlier == null ? "—" : Number(row.medianOutlier).toFixed(1) + "× median"}</span></div>`).join("")
+            : `<div class="empty"><p>No persisted search-topic pattern yet. Run a few Discover searches to start building this section.</p></div>`}
         </div>
-        <div class="card"><div class="card-h"><h2>Winning Hook Types</h2></div>
-          ${["Contradiction", "Challenge", "Mistake", "Before / After", "Unexpected Result", "Question"]
-            .map((h, i) => `<div class="rank"><span>${h}</span><span></span><span></span><span>${[92, 88, 81, 74, 70, 61][i]}</span></div>`)
-            .join("")}
+
+        <div class="card">
+          <div class="card-h"><h2>Content Type Patterns</h2><p>Real latest metrics by Short, Long-form, and Livestream cohorts.</p></div>
+          ${types.length
+            ? types.map((row) => `<div class="rank"><span>${esc(row.type)}</span><span>${fmt(row.videos)} videos</span><span>median ${fmt(row.medianLatestViews)} views · ${Number(row.medianEngagement || 0).toFixed(2)}% eng</span><span>${row.growthSampleSize ? fmt(row.medianActualGrowthPerHour) + "/h actual" : "growth history pending"}</span></div>`).join("")
+            : `<div class="empty"><p>No content-type observations yet.</p></div>`}
         </div>
       </div>
-      <div class="card" style="margin-top:12px"><div class="card-h"><h2>Title Patterns</h2></div>
-        ${[
-          ["I built X in Y hours", 14, "6.1×", "TEST"],
-          ["Why X doesn't work", 11, "5.4×", "GO"],
-          ["X mistakes beginners make", 9, "4.2×", "GO"],
-          ["I tested X for 30 days", 7, "4.8×", "TEST"],
-        ]
-          .map(
-            (r) =>
-              `<div class="rank"><span>${r[0]}</span><span>${r[1]} videos</span><span>avg outlier ${r[2]}</span><span class="badge ${r[3].toLowerCase()}">${r[3]} for Christina</span></div>`
-          )
-          .join("")}
+
+      <div class="card" style="margin-top:12px">
+        <div class="card-h"><h2>Repeated Title Signals</h2><p>Words and two-word phrases appearing across at least two tracked titles. This is literal title data, not AI interpretation.</p></div>
+        ${terms.length
+          ? terms.map((row) => `<div class="rank"><span>${esc(row.term)}</span><span>${fmt(row.videos)} titles</span><span></span><span>avg opp ${row.avgOpportunity == null ? "—" : Number(row.avgOpportunity).toFixed(1)}</span></div>`).join("")
+          : `<div class="empty"><p>Not enough repeated title language yet. This section will populate naturally as the research dataset grows.</p></div>`}
+      </div>
+
+      <div class="card" style="margin-top:12px">
+        <div class="card-h"><h2>Actual Growth Leaders</h2><p>Only measured growth between stored observations — no 24h extrapolation.</p></div>
+        ${growth.length
+          ? `<div class="rank" style="color:var(--dim)"><span>Video</span><span>Snapshots</span><span>Growth</span><span>Actual pace</span></div>` +
+            growth.map((row) => `<div class="rank"><span>${esc(row.title)}</span><span>${row.snapshotCount}</span><span class="num">+${fmt(row.deltaViews)}${row.growthPercent == null ? "" : " · +" + row.growthPercent + "%"}</span><span class="num">${fmt(row.actualViewsHour)}/h</span></div>`).join("")
+          : `<div class="empty"><p>No videos have two snapshots yet. Revisit research later to create real growth pairs.</p></div>`}
+      </div>
+
+      <div class="card" style="margin-top:12px;padding:14px">
+        <h2 style="font-size:14px;margin:0 0 6px">How to read this page</h2>
+        <p class="meta" style="margin:0">Patterns become more meaningful as the local database grows. Christina Lab shows empty/pending states rather than inventing conclusions when there is not enough evidence.</p>
       </div>`;
   }
 
@@ -1221,7 +1328,16 @@
     document.getElementById("retry")?.addEventListener("click", () => {
       runDiscoverSearch(state.query);
     });
+    document.getElementById("retryDashboard")?.addEventListener("click", () => {
+      state.dashboardData = null;
+      loadDashboardData(true);
+    });
+    document.getElementById("retryPatterns")?.addEventListener("click", () => {
+      state.patternsData = null;
+      loadPatternsData(true);
+    });
   }
 
   render();
+  loadRouteData(state.route);
 })();
