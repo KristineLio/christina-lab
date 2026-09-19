@@ -84,6 +84,7 @@ def calculate_channel_baseline(
     candidate_published_at: datetime,
     samples: list[dict],
     min_samples: int = 3,
+    max_samples: int = 12,
     now: datetime | None = None,
 ) -> dict[str, int | float | str | None]:
     """Build an age-adjusted baseline from recent public channel uploads.
@@ -100,6 +101,11 @@ def calculate_channel_baseline(
     The median channel velocity is then projected to the candidate's current
     age to produce an explainable "expected views by this age" baseline.
 
+    Live and upcoming videos are excluded from the comparison pool because
+    their current totals are not stable baseline samples. The comparison pool
+    is capped at the most recent usable samples so older channel history does
+    not dominate the baseline.
+
     This is an age-adjusted public-data approximation. Once Christina Lab
     stores its own snapshots over time, it can graduate to true same-age
     historical baselines.
@@ -113,6 +119,9 @@ def calculate_channel_baseline(
             continue
         views = int(sample.get("views") or 0)
         published_at = sample.get("publishedAt")
+        live_state = sample.get("liveBroadcastContent", "none")
+        if live_state in {"live", "upcoming"}:
+            continue
         if views <= 0 or not isinstance(published_at, datetime):
             continue
 
@@ -131,10 +140,10 @@ def calculate_channel_baseline(
     ]
 
     if len(same_format) >= min_samples:
-        pool = same_format
+        pool = same_format[:max_samples]
         scope = "same-format"
     elif len(usable) >= min_samples:
-        pool = usable
+        pool = usable[:max_samples]
         scope = "all-formats"
     else:
         return {
