@@ -487,7 +487,7 @@
         <button class="btn ghost" id="resetF">Reset filters</button>
       </div>
       ${state.searched && !state.loading && !state.apiError
-        ? `<div class="meta" style="margin:-4px 0 12px">Live YouTube Data · Opportunity Score v1 combines age-adjusted outlier, 24h run rate, engagement, views/subscriber, freshness, and baseline confidence with explicit guardrails.</div>`
+        ? `<div class="meta" style="margin:-4px 0 12px">Live YouTube Data · Opportunity Score v1.1 combines age-adjusted outlier, 24h run rate, engagement, views/subscriber, freshness, and baseline confidence with explicit guardrails.</div>`
         : ""}
       ${
         state.loading
@@ -520,7 +520,7 @@
                       ? `<span class="meta">Need more channel history</span>`
                       : `<span class="outlier num tip" title="Average views/hour for this video divided by the median average views/hour of recent channel uploads.">${v.outlier.toFixed(1)}×</span>
                          <div class="meta">expected ~${fmt(v.baseline)} by ${esc(v.age)} · ${v.baselineSampleSize} ${v.baselineScope === "same-format" ? "same-format" : "recent"} videos</div>`}</td>
-                    <td class="num tip" title="Explainable Opportunity Score v1. Open Analyze to see every component and guardrail.">${v.opportunity == null ? "—" : "<b>" + v.opportunity + "/100</b>"}</td>
+                    <td class="num tip" title="Explainable Opportunity Score v1.1. Open Analyze to see every component and guardrail.">${v.opportunity == null ? "—" : "<b>" + v.opportunity + "/100</b>"}</td>
                     <td class="actions">
                       <button class="btn" data-act="${state.saved.has(v.id) ? "unsave" : "save"}" data-id="${esc(v.id)}">${state.saved.has(v.id) ? "Saved" : "Save"}</button>
                       <button class="btn" data-act="analyze" data-id="${esc(v.id)}">Analyze</button>
@@ -563,7 +563,7 @@
       </div>
 
       <div class="metrics">
-        <div class="metric"><label>Opportunity Score</label><div class="val num">${v.opportunity == null ? "—" : v.opportunity + "/100"}</div><div class="sec">Explainable v1 score</div></div>
+        <div class="metric"><label>Opportunity Score</label><div class="val num">${v.opportunity == null ? "—" : v.opportunity + "/100"}</div><div class="sec">Explainable v1.1 score</div></div>
         <div class="metric"><label>Views</label><div class="val num">${Number(v.views || 0).toLocaleString()}</div></div>
         <div class="metric"><label class="tip" title="Current average views/hour × 24. This is an extrapolated pace, not actual views received in 24 hours.">24h Run Rate</label><div class="val num">${fmt(v.viewsDay)}</div></div>
         <div class="metric"><label>Engagement Rate</label><div class="val num">${Number(v.engagement || 0).toFixed(2)}%</div></div>
@@ -603,7 +603,7 @@
           <li>${Number(v.engagement || 0).toFixed(2)}% public engagement from likes + comments relative to views.</li>
           <li>${v.viewsSub == null ? "Subscriber count is hidden or unavailable." : ratioLabel(v.viewsSub) + " views/subscriber, equal to " + ratioPercentLabel(v.viewsSub) + " of the current subscriber count."}</li>
         </ul>
-        <p class="meta" style="margin-bottom:0">Opportunity Score v1 and the age-adjusted outlier are Christina Lab derived metrics from public YouTube data, not official YouTube metrics.</p>
+        <p class="meta" style="margin-bottom:0">Opportunity Score v1.1 and the age-adjusted outlier are Christina Lab derived metrics from public YouTube data, not official YouTube metrics.</p>
       </div>
 
       <div class="card" style="margin-top:12px;padding:14px">
