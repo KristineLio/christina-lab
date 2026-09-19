@@ -15,8 +15,8 @@ SNAPSHOT_MIN_INTERVAL_MINUTES = 15
 
 _TITLE_STOPWORDS = {
     "about", "after", "again", "against", "also", "been", "before", "being",
-    "best", "for", "from", "have", "how", "into", "just", "latest", "more",
-    "most", "new", "our", "over", "real", "september", "that", "the",
+    "best", "for", "from", "have", "how", "into", "just", "latest", "like",
+    "more", "most", "new", "our", "over", "real", "september", "that", "the",
     "their", "them", "then", "there", "these", "they", "this", "those",
     "today", "top", "video", "what", "when", "where", "which", "while",
     "with", "your", "you", "why", "2026",
@@ -33,9 +33,10 @@ _TITLE_SEO_NOISE = {
 # These words can be useful inside phrases ("copy trading", "trading journal")
 # but are too broad to surface as meaningful one-word title patterns.
 _TITLE_GENERIC_SINGLETONS = {
-    "bitcoin", "btc", "crypto", "cryptocurrency", "day", "gold", "live",
-    "market", "markets", "motivation", "news", "setup", "stock", "stockmarket",
-    "strategy", "trade", "trader", "traders", "trading", "update",
+    "action", "bitcoin", "btc", "comedy", "crypto", "cryptocurrency", "day",
+    "funny", "gold", "live", "market", "markets", "motivation", "news",
+    "setup", "stock", "stockmarket", "strategy", "trade", "trader", "traders",
+    "trading", "update",
 }
 
 # Pairs made only from broad market/category words are usually just niche labels
