@@ -323,7 +323,7 @@ def test_opportunity_score_is_explainable_and_bounded():
         10,
         5,
     ]
-    assert result["opportunityScoreVersion"] == "v1"
+    assert result["opportunityScoreVersion"] == "v1.1"
 
 
 def test_tiny_channel_breakout_cannot_dominate_on_ratio_alone():
