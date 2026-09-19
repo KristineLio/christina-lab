@@ -377,3 +377,17 @@ gold strategy
 ```
 
 rather than raw frequency terms such as `for`, `the`, `day`, `gold`, or `trader`.
+
+
+## Milestone 5.1.2 — Phrase quality cleanup
+
+A final deterministic phrase cleanup removes awkward repeated bigrams without introducing hidden AI semantics.
+
+Examples:
+
+- `trading forex` is normalized to `forex trading`
+- `action trading`, `trading motivation`, `motivation trading`, `trading like`, and `funny comedy` are suppressed
+- filler singletons such as `action`, `funny`, `comedy`, and `like` are also prevented from surfacing by themselves
+- useful phrases such as `price action`, `trading setup`, `day trading`, `copy trading`, and `trading journal` remain eligible
+
+The goal is to stop hand-tuning after obvious cleanup and let broader datasets from different search topics determine what patterns are actually useful.
