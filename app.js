@@ -323,7 +323,13 @@
       );
     }
     if (state.filters.type !== "All") {
-      list = list.filter((v) => v.type === (state.filters.type === "Shorts" ? "Short" : "Long-form"));
+      const wantedType =
+        state.filters.type === "Shorts"
+          ? "Short"
+          : state.filters.type === "Regular long-form"
+          ? "Long-form"
+          : state.filters.type;
+      list = list.filter((v) => v.type === wantedType);
     }
     if (state.filters.topic !== "All") list = list.filter((v) => v.topic === state.filters.topic);
     list = list.filter((v) => v.views >= (+state.filters.minViews || 0));
@@ -500,7 +506,8 @@
         <select id="ftype">
           <option ${state.filters.type === "All" ? "selected" : ""}>All</option>
           <option ${state.filters.type === "Shorts" ? "selected" : ""}>Shorts</option>
-          <option ${state.filters.type === "Long-form" ? "selected" : ""}>Long-form</option>
+          <option ${state.filters.type === "Regular long-form" ? "selected" : ""}>Regular long-form</option>
+          <option ${state.filters.type === "Livestream" ? "selected" : ""}>Livestream</option>
         </select>
         <input id="fmin" type="number" value="${state.filters.minViews || ""}" placeholder="Min views" style="width:110px" />
         <select id="ftopic">${topics
@@ -516,7 +523,7 @@
         <button class="btn ghost" id="resetF">Reset filters</button>
       </div>
       ${state.searched && !state.loading && !state.apiError
-        ? `<div class="meta" style="margin:-4px 0 12px">Live YouTube Data · Opportunity Score v1.1 combines age-adjusted outlier, 24h run rate, engagement, views/subscriber, freshness, and baseline confidence with explicit guardrails.</div>`
+        ? `<div class="meta" style="margin:-4px 0 12px">Live YouTube Data · Milestone 4 now stores real metric snapshots over time. Historical same-age baselines are used when enough observations exist; otherwise Christina Lab clearly falls back to a provisional velocity estimate.</div>`
         : ""}
       ${
         state.loading
@@ -539,7 +546,7 @@
                 .map(
                   (v) => `<tr>
                     <td>${videoImg(v)}</td>
-                    <td><div class="t">${esc(v.title)}</div><div class="meta">${esc(v.channel)} · ${fmt(v.subs)} subs · ${esc(v.duration)} · ${esc(v.topic)}</div></td>
+                    <td><div class="t">${esc(v.title)}</div><div class="meta">${esc(v.channel)} · ${fmt(v.subs)} subs · ${esc(v.duration)} · ${esc(v.type)} · ${esc(v.topic)}</div></td>
                     <td>${esc(v.age)}</td>
                     <td class="num">${fmt(v.views)}</td>
                     <td class="num tip" title="Current average views/hour × 24. This is an extrapolated pace, not actual views received in 24 hours.">${fmt(v.viewsDay)}</td>
@@ -547,9 +554,9 @@
                     <td class="num">${Number(v.engagement || 0).toFixed(2)}%</td>
                     <td>${v.outlier == null
                       ? `<span class="meta">Need more channel history</span>`
-                      : `<span class="outlier num tip" title="Average views/hour for this video divided by the median average views/hour of recent channel uploads.">${v.outlier.toFixed(1)}×</span>
-                         <div class="meta">expected ~${fmt(v.baseline)} by ${esc(v.age)} · ${v.baselineSampleSize} ${v.baselineScope === "same-format" ? "same-format" : "recent"} videos</div>`}</td>
-                    <td class="num tip" title="Explainable Opportunity Score v1.1. Open Analyze to see every component and guardrail.">${v.opportunity == null ? "—" : "<b>" + v.opportunity + "/100</b>"}</td>
+                      : `<span class="outlier num tip" title="${v.baselineMethod === "historical-snapshot-median" ? "Compared with real same-age snapshots from previous videos." : "Provisional estimate based on recent videos' average lifetime velocity while snapshots accumulate."}">${v.outlier.toFixed(1)}×</span>
+                         <div class="meta">${v.baselineMethod === "historical-snapshot-median" ? "historical" : "estimated"} · expected ~${fmt(v.baseline)} by ${esc(v.age)} · ${v.baselineSampleSize} samples</div>`}</td>
+                    <td class="num tip" title="Explainable Opportunity Score v1.2. Open Analyze to see every component and guardrail.">${v.opportunity == null ? "—" : "<b>" + v.opportunity + "/100</b>"}</td>
                     <td class="actions">
                       <button class="btn" data-act="${state.saved.has(v.id) ? "unsave" : "save"}" data-id="${esc(v.id)}">${state.saved.has(v.id) ? "Saved" : "Save"}</button>
                       <button class="btn" data-act="analyze" data-id="${esc(v.id)}">Analyze</button>
@@ -567,22 +574,22 @@
   }
 
   function liveAnalysis(v, related, n) {
-    const baselineScope =
-      v.baselineScope === "same-format"
-        ? "recent same-format uploads"
-        : v.baselineScope === "all-formats"
-        ? "recent uploads across formats"
-        : "recent uploads";
     const baselineReady = v.outlier != null && v.baseline != null;
+    const historicalBaseline = v.baselineMethod === "historical-snapshot-median";
     const components = Array.isArray(v.opportunityComponents) ? v.opportunityComponents : [];
     const guardrails = Array.isArray(v.opportunityGuardrails) ? v.opportunityGuardrails : [];
+    const snapshots = Array.isArray(v.snapshotHistory) ? v.snapshotHistory : [];
+    const baselineLabel = historicalBaseline ? "Historical same-age Outlier" : "Estimated Outlier";
+    const baselineDetail = historicalBaseline
+      ? `median of ${v.baselineSampleSize} real snapshots near ${Number(v.historicalTargetAgeHours || v.ageHours || 0).toFixed(1)}h (±${Number(v.historicalToleranceHours || 0).toFixed(1)}h)`
+      : `provisional velocity estimate · ${v.historicalSnapshotSampleSize || 0}/3 same-age historical samples available`;
 
     return `
       <div class="video-head">
         ${videoImg(v, "thumb")}
         <div>
           <div class="t" style="font-size:18px">${esc(v.title)}</div>
-          <div class="meta">${esc(v.channel)} · ${esc(v.published)} · ${esc(v.duration)} · ${esc(v.type)}</div>
+          <div class="meta">${esc(v.channel)} · ${esc(v.published)} · ${esc(v.duration)} · ${esc(v.type)}${v.liveStatus && v.liveStatus !== "none" ? " · " + esc(v.liveStatus) : ""}</div>
           <div class="actions" style="margin-top:12px">
             <a class="btn" href="${esc(v.youtubeUrl)}" target="_blank" rel="noreferrer">Open on YouTube</a>
             <button class="btn" data-act="${state.saved.has(v.id) ? "unsave" : "save"}" data-id="${esc(v.id)}">${state.saved.has(v.id) ? "Saved" : "Save Research"}</button>
@@ -592,18 +599,19 @@
       </div>
 
       <div class="metrics">
-        <div class="metric"><label>Opportunity Score</label><div class="val num">${v.opportunity == null ? "—" : v.opportunity + "/100"}</div><div class="sec">Explainable v1.1 score</div></div>
+        <div class="metric"><label>Opportunity Score</label><div class="val num">${v.opportunity == null ? "—" : v.opportunity + "/100"}</div><div class="sec">Explainable v1.2 score</div></div>
         <div class="metric"><label>Views</label><div class="val num">${Number(v.views || 0).toLocaleString()}</div></div>
         <div class="metric"><label class="tip" title="Current average views/hour × 24. This is an extrapolated pace, not actual views received in 24 hours.">24h Run Rate</label><div class="val num">${fmt(v.viewsDay)}</div></div>
         <div class="metric"><label>Engagement Rate</label><div class="val num">${Number(v.engagement || 0).toFixed(2)}%</div></div>
         <div class="metric"><label>Views / Subscriber</label><div class="val num">${ratioLabel(v.viewsSub)}</div><div class="sec">${v.viewsSub == null ? "Subscriber count unavailable" : ratioPercentLabel(v.viewsSub) + " of subscriber count"}</div></div>
-        <div class="metric"><label class="tip" title="Average views/hour for this video divided by the median average views/hour of recent channel uploads.">Age-adjusted Outlier</label><div class="val num outlier">${baselineReady ? v.outlier.toFixed(1) + "×" : "—"}</div></div>
-        <div class="metric"><label>Expected Views at This Age</label><div class="val num">${baselineReady ? fmt(v.baseline) : "—"}</div><div class="sec">${baselineReady ? "median " + fmt(v.baselineVelocity) + "/hour · " + v.baselineSampleSize + " " + baselineScope : "Need at least 3 usable recent uploads"}</div></div>
+        <div class="metric"><label class="tip" title="${historicalBaseline ? "Real same-age snapshot comparison." : "Temporary estimate while real same-age history accumulates."}">${baselineLabel}</label><div class="val num outlier">${baselineReady ? v.outlier.toFixed(1) + "×" : "—"}</div></div>
+        <div class="metric"><label>${historicalBaseline ? "Historical Expected Views" : "Estimated Views at This Age"}</label><div class="val num">${baselineReady ? fmt(v.baseline) : "—"}</div><div class="sec">${baselineReady ? esc(baselineDetail) : "Need at least 3 usable comparison samples"}</div></div>
+        <div class="metric"><label>Snapshots Stored</label><div class="val num">${snapshots.length}</div><div class="sec">${snapshots.length >= 2 ? "real growth history started" : "first observation — check again later"}</div></div>
       </div>
 
       <div class="card" style="margin-top:12px;padding:14px">
         <h2 style="margin:0 0 4px;font-size:14px">Why Opportunity = ${v.opportunity == null ? "—" : v.opportunity + "/100"}</h2>
-        <p class="meta" style="margin-top:0">No hidden AI judgment: these points come directly from the signals below. Component points total ${v.opportunityRaw ?? "—"} before guardrails.</p>
+        <p class="meta" style="margin-top:0">No hidden AI judgment. Component points total ${v.opportunityRaw ?? "—"} before guardrails. Historical snapshot baselines receive full confidence; the older velocity approximation is deliberately limited while history is collected.</p>
         <div style="display:grid;gap:6px;margin-top:10px">
           ${components.length
             ? components.map((component) => `
@@ -622,17 +630,34 @@
         </div>
       </div>
 
+      <div class="card" style="margin-top:12px;padding:14px">
+        <h2 style="margin:0 0 4px;font-size:14px">Real snapshot history</h2>
+        <p class="meta" style="margin-top:0">Each time Christina Lab sees this video again (at least 15 minutes later), it stores another public-metric observation. This is how the app learns actual 1h → 6h → 12h → 24h → 48h growth over time.</p>
+        ${snapshots.length
+          ? `<div style="display:grid;gap:6px">${snapshots.map((s) => `
+              <div class="rank" style="grid-template-columns:90px 1fr 1fr 1fr">
+                <span class="num">${Number(s.ageHours).toFixed(1)}h</span>
+                <span>${Number(s.views).toLocaleString()} views</span>
+                <span class="meta">${Number(s.likes).toLocaleString()} likes</span>
+                <span class="meta">${Number(s.comments).toLocaleString()} comments</span>
+              </div>`).join("")}</div>`
+          : `<div class="meta">No snapshots stored yet.</div>`}
+      </div>
+
       <div class="card why" style="margin-top:12px">
         <h2 style="margin:0 0 8px;font-size:14px">Signal details</h2>
         <ul>
           ${baselineReady
-            ? `<li><b>${v.outlier.toFixed(1)}× age-adjusted outlier:</b> ${fmt(v.views)} current views vs ~${fmt(v.baseline)} expected by ${esc(v.age)} from the channel's recent median view velocity.</li>`
-            : `<li>There is not enough usable recent channel history to calculate a stable median baseline yet.</li>`}
+            ? historicalBaseline
+              ? `<li><b>${v.outlier.toFixed(1)}× historical same-age outlier:</b> ${fmt(v.views)} current views vs a ${fmt(v.baseline)} median from previous ${esc(v.type)} videos observed at approximately the same age.</li>`
+              : `<li><b>${v.outlier.toFixed(1)}× provisional outlier:</b> ${fmt(v.views)} current views vs ~${fmt(v.baseline)} estimated from recent lifetime-average velocity. Real same-age snapshots are still accumulating.</li>`
+            : `<li>There is not enough usable channel history to calculate a baseline yet.</li>`}
           <li>${fmt(v.viewsDay)} projected 24h run rate from the video's current average pace; this is not actual 24-hour views.</li>
           <li>${Number(v.engagement || 0).toFixed(2)}% public engagement from likes + comments relative to views.</li>
           <li>${v.viewsSub == null ? "Subscriber count is hidden or unavailable." : ratioLabel(v.viewsSub) + " views/subscriber, equal to " + ratioPercentLabel(v.viewsSub) + " of the current subscriber count."}</li>
+          <li>Content classification: <b>${esc(v.type)}</b>${v.liveStatus === "replay" ? " (livestream replay)" : v.liveStatus === "live" ? " (currently live)" : ""}.</li>
         </ul>
-        <p class="meta" style="margin-bottom:0">Opportunity Score v1.1 and the age-adjusted outlier are Christina Lab derived metrics from public YouTube data, not official YouTube metrics.</p>
+        <p class="meta" style="margin-bottom:0">Opportunity Score v1.2 and outlier metrics are Christina Lab derived metrics from public YouTube data, not official YouTube metrics.</p>
       </div>
 
       <div class="card" style="margin-top:12px;padding:14px">
@@ -648,7 +673,7 @@
       <div class="card" style="margin-top:12px">
         <div class="card-h"><h2>Related live results</h2><p>Other videos returned for the same search.</p></div>
         ${related.length
-          ? related.map((r) => `<div class="opp">${videoImg(r)}<div><div class="t">${esc(r.title)}</div><div class="meta">${esc(r.channel)} · ${fmt(r.viewsDay)} / 24h pace</div></div><span class="num">${r.opportunity == null ? "—" : r.opportunity + "/100"}</span></div>`).join("")
+          ? related.map((r) => `<div class="opp">${videoImg(r)}<div><div class="t">${esc(r.title)}</div><div class="meta">${esc(r.channel)} · ${esc(r.type)} · ${fmt(r.viewsDay)} / 24h pace</div></div><span class="num">${r.opportunity == null ? "—" : r.opportunity + "/100"}</span></div>`).join("")
           : `<div class="empty"><p>No related live results in this search set.</p></div>`}
       </div>`;
   }
