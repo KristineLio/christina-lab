@@ -6,10 +6,13 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
+from .storage import SnapshotStore
 from .youtube import YouTubeAPIError, YouTubeClient
 
 
 load_dotenv()
+
+snapshot_store = SnapshotStore()
 
 app = FastAPI(
     title="Christina Lab API",
@@ -40,6 +43,7 @@ async def health() -> dict:
     return {
         "status": "ok",
         "youtubeConfigured": bool(os.getenv("YOUTUBE_API_KEY")),
+        "snapshotStore": snapshot_store.stats(),
     }
 
 
@@ -57,10 +61,26 @@ async def discover(
         )
 
     try:
-        return await YouTubeClient(api_key).discover(
+        return await YouTubeClient(api_key, snapshot_store=snapshot_store).discover(
             query=q.strip(),
             max_results=max_results,
             published_after_days=published_after_days,
         )
     except YouTubeAPIError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+
+@app.get("/api/snapshots/stats")
+async def snapshot_stats() -> dict:
+    return snapshot_store.stats()
+
+
+@app.get("/api/videos/{video_id}/snapshots")
+async def video_snapshots(video_id: str) -> dict:
+    snapshots = snapshot_store.video_snapshots(video_id)
+    return {
+        "videoId": video_id,
+        "count": len(snapshots),
+        "snapshots": snapshots,
+    }
