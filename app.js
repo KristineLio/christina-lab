@@ -428,7 +428,7 @@
       <div class="actions">
         ${v.outlier == null
           ? `<span class="meta">Need 3 recent uploads</span>`
-          : `<span class="outlier num tip" title="Current views divided by the median views of recent channel uploads.">${v.outlier.toFixed(1)}×</span>
+          : `<span class="outlier num tip" title="Average views/hour for this video divided by the median average views/hour of recent channel uploads.">${v.outlier.toFixed(1)}×</span>
              <span class="badge ${level(v.outlier)}">${levelLabel(v.outlier)}</span>`}
         <button class="btn" data-act="${saved ? "unsave" : "save"}" data-id="${v.id}">${saved ? "Saved" : "Save"}</button>
         <button class="btn primary" data-act="analyze" data-id="${v.id}">Analyze</button>
@@ -475,7 +475,7 @@
         <button class="btn ghost" id="resetF">Reset filters</button>
       </div>
       ${state.searched && !state.loading && !state.apiError
-        ? `<div class="meta" style="margin:-4px 0 12px">Live YouTube Data · Outlier = current views ÷ median views of recent channel uploads. Opportunity score is still a later milestone.</div>`
+        ? `<div class="meta" style="margin:-4px 0 12px">Live YouTube Data · Age-adjusted outlier compares this video's average view velocity with the channel's recent median velocity. Opportunity score is still a later milestone.</div>`
         : ""}
       ${
         state.loading
@@ -506,8 +506,8 @@
                     <td class="num">${Number(v.engagement || 0).toFixed(2)}%</td>
                     <td>${v.outlier == null
                       ? `<span class="meta">Need more channel history</span>`
-                      : `<span class="outlier num tip" title="Current views divided by the median views of recent channel uploads.">${v.outlier.toFixed(1)}×</span>
-                         <div class="meta">baseline ${fmt(v.baseline)} · ${v.baselineSampleSize} ${v.baselineScope === "same-format" ? "same-format" : "recent"} videos</div>`}</td>
+                      : `<span class="outlier num tip" title="Average views/hour for this video divided by the median average views/hour of recent channel uploads.">${v.outlier.toFixed(1)}×</span>
+                         <div class="meta">expected ~${fmt(v.baseline)} by ${esc(v.age)} · ${v.baselineSampleSize} ${v.baselineScope === "same-format" ? "same-format" : "recent"} videos</div>`}</td>
                     <td class="num">${v.opportunity == null ? "—" : v.opportunity + "/100"}</td>
                     <td class="actions">
                       <button class="btn" data-act="${state.saved.has(v.id) ? "unsave" : "save"}" data-id="${esc(v.id)}">${state.saved.has(v.id) ? "Saved" : "Save"}</button>
@@ -552,20 +552,20 @@
         <div class="metric"><label>Views / Day</label><div class="val num">${fmt(v.viewsDay)}</div></div>
         <div class="metric"><label>Engagement Rate</label><div class="val num">${Number(v.engagement || 0).toFixed(2)}%</div></div>
         <div class="metric"><label>Views / Subscriber</label><div class="val num">${ratioLabel(v.viewsSub)}</div></div>
-        <div class="metric"><label class="tip" title="Current views divided by the median views of recent channel uploads.">Outlier Score</label><div class="val num outlier">${baselineReady ? v.outlier.toFixed(1) + "×" : "—"}</div></div>
-        <div class="metric"><label>Channel Baseline</label><div class="val num">${baselineReady ? fmt(v.baseline) : "—"}</div><div class="sec">${baselineReady ? v.baselineSampleSize + " " + baselineScope : "Need at least 3 usable recent uploads"}</div></div>
+        <div class="metric"><label class="tip" title="Average views/hour for this video divided by the median average views/hour of recent channel uploads.">Age-adjusted Outlier</label><div class="val num outlier">${baselineReady ? v.outlier.toFixed(1) + "×" : "—"}</div></div>
+        <div class="metric"><label>Expected Views at This Age</label><div class="val num">${baselineReady ? fmt(v.baseline) : "—"}</div><div class="sec">${baselineReady ? "median " + fmt(v.baselineVelocity) + "/hour · " + v.baselineSampleSize + " " + baselineScope : "Need at least 3 usable recent uploads"}</div></div>
       </div>
       <div class="card why">
         <h2 style="margin:0 0 8px;font-size:14px">Why this is interesting</h2>
         <ul>
           ${baselineReady
-            ? `<li><b>${v.outlier.toFixed(1)}× outlier:</b> ${fmt(v.views)} current views vs a ${fmt(v.baseline)} median baseline from ${v.baselineSampleSize} ${baselineScope}.</li>`
+            ? `<li><b>${v.outlier.toFixed(1)}× age-adjusted outlier:</b> ${fmt(v.views)} current views vs ~${fmt(v.baseline)} expected by ${esc(v.age)} from the channel's recent median view velocity.</li>`
             : `<li>There is not enough usable recent channel history to calculate a stable median baseline yet.</li>`}
           <li>${fmt(v.viewsDay)} estimated views/day based on current age.</li>
           <li>${Number(v.engagement || 0).toFixed(2)}% public engagement from likes + comments relative to views.</li>
           <li>${v.viewsSub == null ? "Subscriber count is hidden or unavailable." : ratioLabel(v.viewsSub) + " views relative to current channel subscribers."}</li>
         </ul>
-        <p class="meta" style="margin-bottom:0">Outlier Score is a Christina Lab derived metric from public YouTube data, not an official YouTube metric.</p>
+        <p class="meta" style="margin-bottom:0">This is an age-adjusted Christina Lab estimate from current public YouTube totals. It is not an official YouTube metric and it is not the same as having historical snapshots of each older video at exactly the same age.</p>
       </div>
       <div class="card" style="margin-top:12px;padding:14px">
         <h2 style="margin:0 0 10px;font-size:14px">Creator notes</h2>

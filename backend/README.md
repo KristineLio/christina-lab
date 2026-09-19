@@ -1,6 +1,6 @@
-# Christina Lab backend — YouTube Milestone 2
+# Christina Lab backend — Age-adjusted YouTube outliers
 
-The Discover workflow now uses real public YouTube data and computes an explainable **channel outlier score**.
+The Discover workflow uses real public YouTube data and computes an explainable **age-adjusted channel outlier score**.
 
 ## Current flow
 
@@ -9,118 +9,128 @@ Search term
   → FastAPI /api/discover
   → YouTube Data API v3
   → candidate videos + channel public statistics
-  → each channel's recent uploads playlist
-  → recent upload view counts
-  → median channel baseline
-  → candidate views ÷ channel median
-  → real Christina Lab outlier score
-  → existing Discover UI
+  → each channel's recent uploads
+  → calculate average view velocity for recent uploads
+  → median channel view velocity
+  → estimate expected views at the candidate's current age
+  → candidate velocity ÷ channel median velocity
+  → age-adjusted outlier score
+  → Discover + Analyze UI
 ```
 
-## Metrics
+## Why the baseline is age-adjusted
 
-For every search result Christina Lab calculates:
+A brand-new video should not be compared directly with the lifetime/current totals of older videos.
 
-- views/hour
-- views/day
-- public engagement rate = (likes + comments) / views
-- views/subscriber ratio
-- channel baseline
-- outlier score
-
-### Channel baseline
-
-For each candidate video:
-
-1. Fetch up to 12 recent public uploads from that channel.
-2. Exclude the candidate itself from its baseline.
-3. Prefer at least 3 recent uploads with the same coarse format:
-   - `Short` = duration <= 3 minutes
-   - `Long-form` = duration > 3 minutes
-4. If fewer than 3 same-format uploads exist, fall back to all recent usable uploads.
-5. Use the **median view count** as the channel baseline.
-6. Calculate:
+Bad comparison:
 
 ```
-outlier = candidate current views / median recent channel views
+new video: 500 views after 5 hours
+older channel median: 5,000 total views
+500 / 5,000 = 0.1x
+```
+
+That penalizes the new video simply because it has had less time to collect views.
+
+The current Christina Lab baseline instead compares **average view velocity**:
+
+```
+candidate velocity
+= candidate views / candidate age in hours
+
+channel baseline velocity
+= median(recent video views / recent video age in hours)
+
+outlier
+= candidate velocity / channel baseline velocity
+```
+
+Then the median channel velocity is projected to the candidate's age:
+
+```
+expected views at this age
+= channel baseline velocity × candidate age
 ```
 
 Example:
 
 ```
-Candidate current views: 12,000
-Channel median baseline:  2,400
-Outlier score:              5.0×
+Candidate:
+500 views after 5 hours
+= 100 views/hour
+
+Recent channel videos:
+2,400 views after 24h  = 100/hour
+4,800 views after 48h  = 100/hour
+7,200 views after 72h  = 100/hour
+
+Median channel velocity = 100/hour
+Expected at 5h = 500 views
+
+Age-adjusted outlier = 1.0x
 ```
 
-The score is derived by Christina Lab from public YouTube data. It is **not an official YouTube metric**.
+## Important limitation
 
-If fewer than 3 usable recent uploads exist, no outlier score is shown instead of inventing a baseline.
+YouTube's public Data API gives the **current cumulative view count** of a video. It does not give us the exact historical view count that an older video had at, for example, exactly 5 or 6 hours after publishing.
 
-## Quota-aware design
+So this age-adjusted score is an approximation based on each recent video's current average views/hour.
 
-The implementation avoids running a costly YouTube search for every channel. It gets each channel's uploads playlist and then batches video-stat requests. This keeps baseline enrichment much cheaper than doing one `search.list` call per candidate channel.
+That is still fairer for new videos than comparing against older lifetime totals, but it is not a true same-age historical baseline.
+
+A later persistence milestone can store Christina Lab's own periodic snapshots. Once enough snapshots exist, the system can compare:
+
+```
+candidate at 6h
+vs
+historical channel videos at 6h
+```
+
+which is the stronger long-term method.
+
+## Baseline rules
+
+For each candidate video:
+
+1. Fetch up to 12 recent public uploads from the channel.
+2. Exclude the candidate itself.
+3. Prefer at least 3 recent uploads with the same coarse format:
+   - `Short` = duration <= 3 minutes
+   - `Long-form` = duration > 3 minutes
+4. If fewer than 3 same-format uploads exist, fall back to all recent usable uploads.
+5. Calculate the median average views/hour.
+6. Project that velocity to the candidate's current age.
+7. Compare candidate velocity with that median velocity.
+
+If fewer than 3 usable recent uploads exist, Christina Lab shows no outlier score instead of inventing one.
+
+## Other live metrics
+
+For each search result Christina Lab also calculates:
+
+- views/hour
+- views/day
+- public engagement rate = (likes + comments) / views
+- views/subscriber ratio
+- expected views at current age
+- age-adjusted outlier score
 
 ## Local setup
 
-From the repository root:
+The existing local setup is unchanged.
 
-1. Create a local environment file:
+Backend:
 
-   ```powershell
-   Copy-Item .env.example .env
-   ```
-
-2. Add your real YouTube Data API key to `.env`:
-
-   ```env
-   YOUTUBE_API_KEY=your_real_key_here
-   ```
-
-3. Create a virtual environment:
-
-   ```powershell
-   py -m venv .venv
-   ```
-
-4. Install backend dependencies:
-
-   ```powershell
-   .\.venv\Scripts\python.exe -m pip install -r backend/requirements.txt
-   ```
-
-5. Start FastAPI:
-
-   ```powershell
-   .\.venv\Scripts\python.exe -m uvicorn backend.app.main:app --reload --port 8000
-   ```
-
-6. In a second terminal, serve the frontend on port 5500 from the repository root:
-
-   ```powershell
-   py -m http.server 5500
-   ```
-
-7. Open the repo subfolder served by your current parent-directory setup if needed, for example:
-
-   ```
-   http://localhost:5500/christina-lab/
-   ```
-
-8. Go to **Discover** and search for `AI tools`.
-
-## Useful checks
-
-Health:
-
-```
-http://127.0.0.1:8000/api/health
+```powershell
+.\.venv\Scripts\python.exe -m uvicorn backend.app.main:app --reload --port 8000
 ```
 
-Example API request:
+Frontend, in a second terminal:
 
-```
-http://127.0.0.1:8000/api/discover?q=AI%20tools
+```powershell
+py -m http.server 5500
 ```
 
-The real `.env` file is ignored by Git and must never be committed.
+Then open the Christina Lab frontend and search in **Discover**.
+
+The real `.env` file remains ignored by Git and must never be committed.

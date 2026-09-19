@@ -38,14 +38,16 @@ The VibeFlow frontend and final light analytics theme are merged into `main` and
 - public engagement rate
 - views/subscriber ratio
 - recent-channel upload history
-- median channel baseline
-- real outlier multiplier
+- age-adjusted median channel velocity baseline
+- expected views at the candidate's current age
+- real age-adjusted outlier multiplier
 - existing Discover + Analyze UI connected to live results
 - insufficient channel history is shown explicitly instead of inventing a score
 
 **Next backend milestone:**
 
-- explainable opportunity ranking that combines outlier strength, velocity, engagement, recency, and useful guardrails
+- explainable opportunity ranking that combines age-adjusted outlier strength, velocity, engagement, recency, and useful guardrails
+- later: persisted historical snapshots for true same-age channel comparisons
 
 Later work:
 

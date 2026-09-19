@@ -33,66 +33,176 @@ def test_calculate_video_metrics():
         now=now,
     )
 
+    assert result["ageHours"] == 24
     assert result["viewsHour"] == 1000
     assert result["viewsDay"] == 24000
     assert result["engagement"] == 5.0
     assert result["viewsSub"] == 2.0
 
 
+def test_age_adjusted_baseline_prefers_same_format():
+    now = datetime(2026, 9, 19, 12, 0, tzinfo=timezone.utc)
+    candidate_published = now - timedelta(hours=6)
 
-def test_channel_baseline_prefers_same_format():
+    # Same-format uploads average 100 views/hour despite very different ages.
     samples = [
-        {"id": "a", "views": 1000, "type": "Short"},
-        {"id": "b", "views": 2000, "type": "Short"},
-        {"id": "c", "views": 3000, "type": "Short"},
-        {"id": "d", "views": 50_000, "type": "Long-form"},
+        {
+            "id": "a",
+            "views": 1200,
+            "type": "Short",
+            "publishedAt": now - timedelta(hours=12),
+        },
+        {
+            "id": "b",
+            "views": 2400,
+            "type": "Short",
+            "publishedAt": now - timedelta(hours=24),
+        },
+        {
+            "id": "c",
+            "views": 4800,
+            "type": "Short",
+            "publishedAt": now - timedelta(hours=48),
+        },
+        {
+            "id": "d",
+            "views": 100_000,
+            "type": "Long-form",
+            "publishedAt": now - timedelta(hours=10),
+        },
     ]
 
     result = calculate_channel_baseline(
         candidate_id="candidate",
-        candidate_views=10_000,
+        candidate_views=1200,
         candidate_type="Short",
+        candidate_published_at=candidate_published,
         samples=samples,
+        now=now,
     )
 
-    assert result["baseline"] == 2000
-    assert result["outlier"] == 5.0
+    # Typical channel velocity is 100 views/hour, so at 6h the expected
+    # baseline is 600 views. 1,200 views is therefore a 2.0x outlier.
+    assert result["baselineVelocity"] == 100
+    assert result["baseline"] == 600
+    assert result["outlier"] == 2.0
+    assert result["candidateAgeHours"] == 6
     assert result["baselineSampleSize"] == 3
     assert result["baselineScope"] == "same-format"
+    assert result["baselineMethod"] == "median-age-adjusted-velocity"
 
 
-def test_channel_baseline_excludes_candidate_and_falls_back_to_all_formats():
+def test_age_adjusted_baseline_excludes_candidate_and_falls_back_to_all_formats():
+    now = datetime(2026, 9, 19, 12, 0, tzinfo=timezone.utc)
+    candidate_published = now - timedelta(hours=10)
+
     samples = [
-        {"id": "candidate", "views": 99_999, "type": "Long-form"},
-        {"id": "a", "views": 1000, "type": "Short"},
-        {"id": "b", "views": 2000, "type": "Short"},
-        {"id": "c", "views": 3000, "type": "Short"},
+        {
+            "id": "candidate",
+            "views": 999_999,
+            "type": "Long-form",
+            "publishedAt": candidate_published,
+        },
+        {
+            "id": "a",
+            "views": 1000,
+            "type": "Short",
+            "publishedAt": now - timedelta(hours=10),
+        },
+        {
+            "id": "b",
+            "views": 2000,
+            "type": "Short",
+            "publishedAt": now - timedelta(hours=20),
+        },
+        {
+            "id": "c",
+            "views": 4000,
+            "type": "Short",
+            "publishedAt": now - timedelta(hours=40),
+        },
     ]
 
     result = calculate_channel_baseline(
         candidate_id="candidate",
-        candidate_views=6000,
+        candidate_views=1500,
         candidate_type="Long-form",
+        candidate_published_at=candidate_published,
         samples=samples,
+        now=now,
     )
 
-    assert result["baseline"] == 2000
-    assert result["outlier"] == 3.0
-    assert result["baselineSampleSize"] == 3
+    # All three usable uploads have 100 views/hour, so expected views at 10h
+    # are 1,000 and the candidate is performing at 1.5x.
+    assert result["baseline"] == 1000
+    assert result["outlier"] == 1.5
     assert result["baselineScope"] == "all-formats"
 
 
-def test_channel_baseline_requires_minimum_sample():
+def test_age_adjusted_baseline_requires_minimum_sample():
+    now = datetime(2026, 9, 19, 12, 0, tzinfo=timezone.utc)
+
     result = calculate_channel_baseline(
         candidate_id="candidate",
         candidate_views=10_000,
         candidate_type="Short",
+        candidate_published_at=now - timedelta(hours=6),
         samples=[
-            {"id": "a", "views": 1000, "type": "Short"},
-            {"id": "b", "views": 2000, "type": "Short"},
+            {
+                "id": "a",
+                "views": 1000,
+                "type": "Short",
+                "publishedAt": now - timedelta(hours=12),
+            },
+            {
+                "id": "b",
+                "views": 2000,
+                "type": "Short",
+                "publishedAt": now - timedelta(hours=24),
+            },
         ],
+        now=now,
     )
 
     assert result["baseline"] is None
     assert result["outlier"] is None
     assert result["baselineScope"] == "insufficient-sample"
+
+
+def test_new_video_is_not_penalized_against_older_lifetime_totals():
+    now = datetime(2026, 9, 19, 12, 0, tzinfo=timezone.utc)
+
+    # Candidate: 500 views after 5h = 100 views/hour.
+    # Older videos: much larger lifetime totals, but the same average velocity.
+    samples = [
+        {
+            "id": "a",
+            "views": 2400,
+            "type": "Short",
+            "publishedAt": now - timedelta(hours=24),
+        },
+        {
+            "id": "b",
+            "views": 4800,
+            "type": "Short",
+            "publishedAt": now - timedelta(hours=48),
+        },
+        {
+            "id": "c",
+            "views": 7200,
+            "type": "Short",
+            "publishedAt": now - timedelta(hours=72),
+        },
+    ]
+
+    result = calculate_channel_baseline(
+        candidate_id="candidate",
+        candidate_views=500,
+        candidate_type="Short",
+        candidate_published_at=now - timedelta(hours=5),
+        samples=samples,
+        now=now,
+    )
+
+    assert result["baseline"] == 500
+    assert result["outlier"] == 1.0

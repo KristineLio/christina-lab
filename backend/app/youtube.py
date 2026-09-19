@@ -112,7 +112,7 @@ class YouTubeClient:
                 channels_payload = await self._get(
                     "channels",
                     {
-                        "part": "statistics,contentDetails",
+                        "part": "snippet,statistics,contentDetails",
                         "id": ",".join(channel_ids),
                         "maxResults": min(len(channel_ids), 50),
                     },
@@ -133,7 +133,7 @@ class YouTubeClient:
 
             candidate_items = videos_payload.get("items", [])
             candidate_samples = {
-                item["id"]: _video_sample(item)
+                item["id"]: _video_sample(item, now=now)
                 for item in candidate_items
                 if item.get("id")
             }
@@ -163,7 +163,7 @@ class YouTubeClient:
                 )
                 for item in payload.get("items", []):
                     if item.get("id"):
-                        baseline_sample_by_id[item["id"]] = _video_sample(item)
+                        baseline_sample_by_id[item["id"]] = _video_sample(item, now=now)
 
         results = []
         for item in candidate_items:
@@ -203,8 +203,10 @@ class YouTubeClient:
                 candidate_id=item["id"],
                 candidate_views=views,
                 candidate_type=video_type,
+                candidate_published_at=published_at,
                 samples=recent_samples,
                 min_samples=self.BASELINE_MIN_SAMPLE,
+                now=now,
             )
 
             thumbnails = snippet.get("thumbnails", {})
@@ -300,7 +302,7 @@ class YouTubeClient:
 
     def _baseline_meta(self) -> dict:
         return {
-            "method": "median-views",
+            "method": "median-age-adjusted-velocity",
             "recentUploadsPerChannel": self.BASELINE_UPLOADS_PER_CHANNEL,
             "minimumSampleSize": self.BASELINE_MIN_SAMPLE,
             "formatPreference": "same-format-then-all-formats",
@@ -311,14 +313,22 @@ def _video_type(duration_seconds: int) -> str:
     return "Short" if duration_seconds <= 180 else "Long-form"
 
 
-def _video_sample(item: dict) -> dict:
+def _video_sample(item: dict, *, now: datetime) -> dict:
     stats = item.get("statistics", {})
     content = item.get("contentDetails", {})
+    snippet = item.get("snippet", {})
     duration_seconds = parse_youtube_duration(content.get("duration", ""))
+
+    published_raw = snippet.get("publishedAt")
+    published_at = None
+    if published_raw:
+        published_at = datetime.fromisoformat(published_raw.replace("Z", "+00:00"))
+
     return {
         "id": item.get("id"),
         "views": _to_int(stats.get("viewCount")),
         "type": _video_type(duration_seconds),
+        "publishedAt": published_at,
     }
 
 
