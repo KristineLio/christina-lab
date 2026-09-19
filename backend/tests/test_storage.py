@@ -658,3 +658,171 @@ def test_title_signals_exclude_baseline_only_channel_history(tmp_path):
     # These repeat across multiple baseline/history videos but must never become
     # a creative pattern because they were not Discover candidates.
     assert "ganpati bappa" not in terms
+
+
+
+def test_saved_research_persists_creator_notes_and_latest_signals(tmp_path):
+    db = tmp_path / "christina_lab.sqlite3"
+    store = SnapshotStore(f"sqlite:///{db}")
+    observed = datetime(2026, 9, 19, 12, 0, tzinfo=timezone.utc)
+    published = observed - timedelta(hours=4)
+
+    video = _video(
+        video_id="research-1",
+        channel_id="channel-a",
+        title="AI Tools Workflow",
+        published_at=published,
+        content_type="Long-form",
+        views=4200,
+        likes=320,
+        comments=40,
+        subscribers=10_000,
+    )
+    video["channel"] = "Creator A"
+    video["thumbnail"] = "https://example.com/thumb.jpg"
+    store.record_snapshots([video], observed_at=observed, min_interval_minutes=0)
+    _record_candidate_analyses(store, ["research-1"], observed, topic="AI tools")
+
+    saved = store.save_research(
+        "research-1",
+        why="Strong cross-channel signal.",
+        adapt="Use the workflow on my own project.",
+        angle="Show the failed version first.",
+    )
+
+    assert saved["videoId"] == "research-1"
+    assert saved["title"] == "AI Tools Workflow"
+    assert saved["channel"] == "Creator A"
+    assert saved["topic"] == "AI tools"
+    assert saved["why"] == "Strong cross-channel signal."
+    assert saved["adapt"] == "Use the workflow on my own project."
+    assert saved["angle"] == "Show the failed version first."
+    assert saved["opportunity"] == 51
+
+    saved_again = store.save_research("research-1", why="Updated reason.")
+    assert saved_again["why"] == "Updated reason."
+    assert saved_again["adapt"] == "Use the workflow on my own project."
+
+    items = store.list_saved_research()
+    assert len(items) == 1
+    assert items[0]["ideaCount"] == 0
+
+    assert store.remove_saved_research("research-1") is True
+    assert store.list_saved_research() == []
+
+
+def test_workflow_persists_idea_and_experiment_result(tmp_path):
+    db = tmp_path / "christina_lab.sqlite3"
+    store = SnapshotStore(f"sqlite:///{db}")
+    observed = datetime(2026, 9, 19, 12, 0, tzinfo=timezone.utc)
+
+    store.record_snapshots(
+        [
+            _video(
+                video_id="source-1",
+                channel_id="channel-a",
+                title="Copy Trading Mistakes",
+                published_at=observed - timedelta(hours=6),
+                content_type="Long-form",
+                views=5000,
+            )
+        ],
+        observed_at=observed,
+        min_interval_minutes=0,
+    )
+    store.save_research(
+        "source-1",
+        why="Good contradiction.",
+        adapt="Use RiskDesk evidence.",
+        angle="Focus on execution differences.",
+    )
+
+    idea = store.create_idea(
+        source_video_id="source-1",
+        title="Why Copying the Same Signal Gives Different Results",
+        hook="Same signal. Different outcome.",
+        topic="copy trading",
+        content_type="Long-form",
+        hypothesis="A contradiction hook should create curiosity.",
+        status="Draft",
+        priority="High",
+    )
+
+    assert idea["id"] == 1
+    assert idea["sourceVideoId"] == "source-1"
+    assert idea["status"] == "Draft"
+
+    ready = store.update_idea(idea["id"], {"status": "Ready"})
+    assert ready["status"] == "Ready"
+
+    experiment = store.create_experiment(
+        idea_id=idea["id"],
+        name="Copy signal contradiction test",
+        status="Ready",
+    )
+    assert experiment["ideaId"] == idea["id"]
+    assert experiment["decision"] == "UNDECIDED"
+
+    updated = store.update_experiment(
+        experiment["id"],
+        {
+            "status": "Published",
+            "publishedAt": "2026-09-19",
+            "v24": 7420,
+            "v7": 18640,
+            "retention": 71.0,
+            "subs": 38,
+            "ctr": 8.4,
+            "result": "Strong first 24 hours.",
+            "decision": "GO",
+            "lesson": "Contradiction framing worked.",
+            "next": "Test the same structure on build in public.",
+        },
+    )
+
+    assert updated["status"] == "Published"
+    assert updated["v24"] == 7420
+    assert updated["decision"] == "GO"
+    assert updated["lesson"] == "Contradiction framing worked."
+
+    # Publishing an experiment promotes its source idea to Published.
+    assert store.get_idea(idea["id"])["status"] == "Published"
+
+    workflow = store.workflow_summary()
+    assert workflow["summary"]["savedResearch"] == 1
+    assert workflow["summary"]["ideas"] == 1
+    assert workflow["summary"]["experiments"] == 1
+    assert workflow["summary"]["publishedExperiments"] == 1
+    assert workflow["summary"]["decisions"]["GO"] == 1
+    assert workflow["summary"]["average24hViews"] == 7420
+    assert workflow["summary"]["averageSubscriberGain"] == 38.0
+
+    signal = workflow["learningSignals"][0]
+    assert signal["topic"] == "copy trading"
+    assert signal["experiments"] == 1
+    assert signal["GO"] == 1
+    assert signal["avg24hViews"] == 7420
+    assert signal["avgSubscriberGain"] == 38.0
+
+
+def test_deleting_saved_research_does_not_delete_derived_idea(tmp_path):
+    db = tmp_path / "christina_lab.sqlite3"
+    store = SnapshotStore(f"sqlite:///{db}")
+    observed = datetime(2026, 9, 19, 12, 0, tzinfo=timezone.utc)
+
+    store.record_snapshots(
+        [
+            _video(
+                video_id="source-2",
+                published_at=observed - timedelta(hours=3),
+                views=1200,
+            )
+        ],
+        observed_at=observed,
+        min_interval_minutes=0,
+    )
+    store.save_research("source-2")
+    idea = store.create_idea(title="Independent idea", source_video_id="source-2")
+
+    assert store.remove_saved_research("source-2") is True
+    assert store.get_idea(idea["id"])["sourceVideoId"] == "source-2"
