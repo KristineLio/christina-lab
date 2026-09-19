@@ -1,6 +1,6 @@
 # Christina Lab backend — Age-adjusted YouTube outliers
 
-The Discover workflow uses real public YouTube data, a deeper cleaned channel-history sample, and an explainable **age-adjusted channel outlier score**.
+The Discover workflow uses real public YouTube data, a deeper cleaned channel-history sample, an age-adjusted channel outlier, and an explainable **Opportunity Score v1**.
 
 ## Current flow
 
@@ -116,6 +116,58 @@ For each search result Christina Lab also calculates:
 - views/subscriber ratio
 - expected views at current age
 - age-adjusted outlier score
+
+## Opportunity Score v1
+
+Christina Lab now turns the live signals into an explainable 0–100 ranking.
+
+The six components add to a maximum of 100 points before guardrails:
+
+| Component | Max points | Purpose |
+| --- | ---: | --- |
+| Age-adjusted outlier | 40 | Rewards performance above the channel's own recent age-adjusted baseline |
+| 24h run rate | 20 | Rewards strong current velocity |
+| Engagement | 15 | Rewards likes + comments relative to views |
+| Views / subscriber | 10 | Detects audience breakout beyond the current subscriber base |
+| Freshness | 10 | Prioritizes newer, more actionable signals |
+| Baseline confidence | 5 | Rewards larger and better-matched comparison samples |
+
+The API returns every component as `opportunityComponents`, so the UI can show exactly where the points came from.
+
+### Guardrails
+
+Opportunity Score v1 deliberately prevents a single noisy metric from dominating:
+
+- channels below 100 subscribers can earn at most 4/10 from views/subscriber
+- channels below 1,000 subscribers can earn at most 7/10 from views/subscriber
+- fewer than 100 current views caps Opportunity at 25
+- fewer than 300 current views caps Opportunity at 40
+- fewer than 1,000 current views caps Opportunity at 60
+- no stable channel baseline caps Opportunity at 55
+- currently live content receives a 5-point penalty because stream velocity can be temporarily inflated
+- upcoming content is capped at 20 until real post-publish performance exists
+
+The API returns applied rules as `opportunityGuardrails`. These are shown in Analyze instead of hiding score adjustments.
+
+### Interpretation
+
+A score is a **research priority signal**, not a prediction that copying a topic or format will succeed.
+
+For example:
+
+```
+Opportunity 82/100
+
++ 34/40  age-adjusted outlier
++ 15/20  24h run rate
++ 13/15  engagement
++  8/10  views/subscriber
++  8/10  freshness
++  4/5   baseline confidence
+
+Guardrails:
+- none
+```
 
 ## Local setup
 
