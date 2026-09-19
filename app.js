@@ -363,7 +363,7 @@
     const sourceNotes = src ? state.notes[src.id] || { why: "", adapt: "", angle: "" } : { why: "", adapt: "", angle: "" };
     const sourceType = src?.type === "Short" ? "Short" : "Long-form";
     m.hidden = false;
-    m.innerHTML = `<div class="modal">
+    m.innerHTML = `<div class="modal idea-modal">
       <h2 style="margin:0 0 6px;font-size:16px">Create idea</h2>
       <p class="meta" style="margin-top:0">${src ? "Source: " + esc(src.title) : "Standalone creator idea"}</p>
       <form class="form" id="ideaForm">
