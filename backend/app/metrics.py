@@ -244,7 +244,8 @@ def calculate_opportunity_score(
       - baseline confidence: 5
 
     Guardrails keep tiny-channel ratios, weak traction, missing baselines, and
-    live/upcoming content from dominating the ranking.
+    live/upcoming content from dominating the ranking. Low traction is handled
+    with a continuous confidence multiplier rather than hard view-count cliffs.
     """
     components: list[dict] = []
     guardrails: list[dict] = []
@@ -466,5 +467,5 @@ def calculate_opportunity_score(
         "opportunityRaw": int(round(raw_score)),
         "opportunityComponents": components,
         "opportunityGuardrails": guardrails,
-        "opportunityScoreVersion": "v1",
+        "opportunityScoreVersion": "v1.1",
     }
