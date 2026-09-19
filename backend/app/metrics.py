@@ -231,6 +231,7 @@ def calculate_opportunity_score(
     outlier: float | None,
     baseline_sample_size: int,
     baseline_scope: str,
+    baseline_method: str = "historical-snapshot-median",
     live_broadcast_content: str = "none",
 ) -> dict:
     """Calculate Christina Lab's explainable 0-100 Opportunity Score.
@@ -250,6 +251,7 @@ def calculate_opportunity_score(
     components: list[dict] = []
     guardrails: list[dict] = []
 
+    historical_baseline = baseline_method == "historical-snapshot-median"
     outlier_points = 0
     if outlier is not None:
         outlier_points = round(
@@ -258,15 +260,35 @@ def calculate_opportunity_score(
                 [(0, 0), (0.5, 0), (1, 8), (2, 20), (4, 32), (8, 40)],
             )
         )
+
+        # Until real same-age history exists, do not let the lifetime-velocity
+        # approximation contribute the full 40 outlier points.
+        if not historical_baseline and outlier_points > 24:
+            outlier_points = 24
+            guardrails.append(
+                {
+                    "type": "component-cap",
+                    "key": "provisional-baseline",
+                    "label": (
+                        "Outlier contribution limited to 24/40 while Christina Lab "
+                        "collects true same-age historical snapshots."
+                    ),
+                }
+            )
+
     components.append(
         {
             "key": "outlier",
             "score": outlier_points,
             "max": 40,
             "label": (
-                f"Age-adjusted outlier: {outlier:.1f}×"
+                (
+                    f"Historical same-age outlier: {outlier:.1f}×"
+                    if historical_baseline
+                    else f"Estimated age-adjusted outlier: {outlier:.1f}×"
+                )
                 if outlier is not None
-                else "Age-adjusted outlier unavailable"
+                else "Outlier unavailable"
             ),
         }
     )
@@ -382,6 +404,9 @@ def calculate_opportunity_score(
         if baseline_scope == "all-formats" and confidence_points > 0:
             confidence_points = max(confidence_points - 1, 1)
 
+        if not historical_baseline:
+            confidence_points = min(confidence_points, 2)
+
     components.append(
         {
             "key": "confidence",
@@ -467,5 +492,6 @@ def calculate_opportunity_score(
         "opportunityRaw": int(round(raw_score)),
         "opportunityComponents": components,
         "opportunityGuardrails": guardrails,
-        "opportunityScoreVersion": "v1.1",
+        "opportunityScoreVersion": "v1.2",
+        "opportunityBaselineMethod": baseline_method,
     }
