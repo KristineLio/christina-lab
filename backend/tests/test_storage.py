@@ -826,3 +826,38 @@ def test_deleting_saved_research_does_not_delete_derived_idea(tmp_path):
 
     assert store.remove_saved_research("source-2") is True
     assert store.get_idea(idea["id"])["sourceVideoId"] == "source-2"
+
+
+
+def test_new_experiment_inherits_ready_idea_status(tmp_path):
+    db = tmp_path / "christina_lab.sqlite3"
+    store = SnapshotStore(f"sqlite:///{db}")
+
+    idea = store.create_idea(
+        title="AI agents explained simply",
+        status="Ready",
+    )
+
+    experiment = store.create_experiment(
+        idea_id=idea["id"],
+        name="AI agents live test",
+    )
+
+    assert experiment["status"] == "Ready"
+
+
+def test_explicit_experiment_status_can_override_inherited_status(tmp_path):
+    db = tmp_path / "christina_lab.sqlite3"
+    store = SnapshotStore(f"sqlite:///{db}")
+
+    idea = store.create_idea(
+        title="Ready idea with a later experiment",
+        status="Ready",
+    )
+
+    experiment = store.create_experiment(
+        idea_id=idea["id"],
+        status="Draft",
+    )
+
+    assert experiment["status"] == "Draft"
