@@ -28,7 +28,7 @@ The VibeFlow frontend and final light analytics theme are merged into `main` and
 
 ### Phase 2 — Backend 🚧
 
-**YouTube V1 milestone implemented on `backend/youtube-v1`:**
+**YouTube Milestones 1–2 implemented:**
 
 - FastAPI backend
 - real YouTube keyword search
@@ -37,15 +37,15 @@ The VibeFlow frontend and final light analytics theme are merged into `main` and
 - views/day
 - public engagement rate
 - views/subscriber ratio
-- existing Discover UI connected to the backend
-- no fake outlier score mixed into live results
+- recent-channel upload history
+- median channel baseline
+- real outlier multiplier
+- existing Discover + Analyze UI connected to live results
+- insufficient channel history is shown explicitly instead of inventing a score
 
 **Next backend milestone:**
 
-- recent-channel baseline
-- median-normalized performance
-- real outlier multiplier
-- explainable opportunity ranking
+- explainable opportunity ranking that combines outlier strength, velocity, engagement, recency, and useful guardrails
 
 Later work:
 
