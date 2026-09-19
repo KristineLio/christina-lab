@@ -1,0 +1,35 @@
+name: Christina Lab CI
+
+on:
+  push:
+    branches:
+      - main
+      - backend/**
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install backend dependencies
+        run: pip install -r backend/requirements.txt
+
+      - name: Run backend tests
+        run: pytest backend/tests -q
+
+      - name: Set up Node for JavaScript syntax check
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Check frontend JavaScript syntax
+        run: node --check app.js
