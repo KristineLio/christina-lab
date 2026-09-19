@@ -190,6 +190,7 @@
   function workflowRoute(path = state.route) {
     const clean = String(path || "/").split("?")[0] || "/";
     return (
+      clean === "/discover" ||
       clean === "/saved" ||
       clean === "/ideas" ||
       clean === "/lab" ||
