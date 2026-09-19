@@ -23,7 +23,7 @@
     route: location.hash.slice(1) || "/",
     query: "",
     searched: false,
-    filters: { time: "7d", type: "All", minViews: 0, sort: "opp", topic: "All" },
+    filters: { time: "7d", type: "All", minViews: 0, sort: "out", topic: "All" },
     saved: new Set(D.savedSeed),
     ideas: D.ideas.map((x) => ({ ...x })),
     experiments: D.experiments.map((x) => ({ ...x })),
@@ -297,9 +297,10 @@
       if (s === "views") return value(b, "views", 0) - value(a, "views", 0);
       if (s === "vpd") return value(b, "viewsDay", 0) - value(a, "viewsDay", 0);
       if (s === "eng") return value(b, "engagement", 0) - value(a, "engagement", 0);
-      // Opportunity scoring arrives in Milestone 2. Until then, live results
-      // fall back to views/day rather than inventing an opportunity score.
-      return value(b, "opportunity", value(b, "viewsDay", 0)) - value(a, "opportunity", value(a, "viewsDay", 0));
+      // Opportunity scoring is still a later milestone. Until then, use the
+      // real channel outlier score as the strongest available ranking signal.
+      return value(b, "opportunity", value(b, "outlier", value(b, "viewsDay", 0))) -
+        value(a, "opportunity", value(a, "outlier", value(a, "viewsDay", 0)));
     });
     return list;
   }
@@ -426,8 +427,8 @@
       </div>
       <div class="actions">
         ${v.outlier == null
-          ? `<span class="meta">Baseline next</span>`
-          : `<span class="outlier num tip" title="Performance relative to the channel's typical recent video.">${v.outlier == null ? "Baseline pending" : v.outlier.toFixed(1) + "×"}</span>
+          ? `<span class="meta">Need 3 recent uploads</span>`
+          : `<span class="outlier num tip" title="Current views divided by the median views of recent channel uploads.">${v.outlier.toFixed(1)}×</span>
              <span class="badge ${level(v.outlier)}">${levelLabel(v.outlier)}</span>`}
         <button class="btn" data-act="${saved ? "unsave" : "save"}" data-id="${v.id}">${saved ? "Saved" : "Save"}</button>
         <button class="btn primary" data-act="analyze" data-id="${v.id}">Analyze</button>
@@ -465,8 +466,8 @@
           .map((t) => `<option ${state.filters.topic === t ? "selected" : ""}>${esc(t)}</option>`)
           .join("")}</select>
         <select id="fsort">
-          <option value="opp" ${state.filters.sort === "opp" ? "selected" : ""}>Best Opportunities</option>
           <option value="out" ${state.filters.sort === "out" ? "selected" : ""}>Outlier Score</option>
+          <option value="opp" ${state.filters.sort === "opp" ? "selected" : ""}>Best Opportunities (later)</option>
           <option value="views" ${state.filters.sort === "views" ? "selected" : ""}>Views</option>
           <option value="vpd" ${state.filters.sort === "vpd" ? "selected" : ""}>Views / Day</option>
           <option value="eng" ${state.filters.sort === "eng" ? "selected" : ""}>Engagement</option>
@@ -474,7 +475,7 @@
         <button class="btn ghost" id="resetF">Reset filters</button>
       </div>
       ${state.searched && !state.loading && !state.apiError
-        ? `<div class="meta" style="margin:-4px 0 12px">Live YouTube Data · Outlier and opportunity scoring arrive in Milestone 2.</div>`
+        ? `<div class="meta" style="margin:-4px 0 12px">Live YouTube Data · Outlier = current views ÷ median views of recent channel uploads. Opportunity score is still a later milestone.</div>`
         : ""}
       ${
         state.loading
@@ -504,8 +505,9 @@
                     <td class="num">${ratioLabel(v.viewsSub)}</td>
                     <td class="num">${Number(v.engagement || 0).toFixed(2)}%</td>
                     <td>${v.outlier == null
-                      ? `<span class="meta">Next milestone</span>`
-                      : `<span class="outlier num">${v.outlier == null ? "Baseline pending" : v.outlier.toFixed(1) + "×"}</span><div class="meta">${v.outlier == null ? "Baseline pending" : v.outlier.toFixed(1) + "×"} channel baseline</div>`}</td>
+                      ? `<span class="meta">Need more channel history</span>`
+                      : `<span class="outlier num tip" title="Current views divided by the median views of recent channel uploads.">${v.outlier.toFixed(1)}×</span>
+                         <div class="meta">baseline ${fmt(v.baseline)} · ${v.baselineSampleSize} ${v.baselineScope === "same-format" ? "same-format" : "recent"} videos</div>`}</td>
                     <td class="num">${v.opportunity == null ? "—" : v.opportunity + "/100"}</td>
                     <td class="actions">
                       <button class="btn" data-act="${state.saved.has(v.id) ? "unsave" : "save"}" data-id="${esc(v.id)}">${state.saved.has(v.id) ? "Saved" : "Save"}</button>
@@ -524,6 +526,14 @@
   }
 
   function liveAnalysis(v, related, n) {
+    const baselineScope =
+      v.baselineScope === "same-format"
+        ? "recent same-format uploads"
+        : v.baselineScope === "all-formats"
+        ? "recent uploads across formats"
+        : "recent uploads";
+    const baselineReady = v.outlier != null && v.baseline != null;
+
     return `
       <div class="video-head">
         ${videoImg(v, "thumb")}
@@ -542,17 +552,20 @@
         <div class="metric"><label>Views / Day</label><div class="val num">${fmt(v.viewsDay)}</div></div>
         <div class="metric"><label>Engagement Rate</label><div class="val num">${Number(v.engagement || 0).toFixed(2)}%</div></div>
         <div class="metric"><label>Views / Subscriber</label><div class="val num">${ratioLabel(v.viewsSub)}</div></div>
-        <div class="metric"><label>Outlier Score</label><div class="val" style="font-size:14px">Milestone 2</div></div>
-        <div class="metric"><label>Channel Baseline</label><div class="val" style="font-size:14px">Milestone 2</div></div>
+        <div class="metric"><label class="tip" title="Current views divided by the median views of recent channel uploads.">Outlier Score</label><div class="val num outlier">${baselineReady ? v.outlier.toFixed(1) + "×" : "—"}</div></div>
+        <div class="metric"><label>Channel Baseline</label><div class="val num">${baselineReady ? fmt(v.baseline) : "—"}</div><div class="sec">${baselineReady ? v.baselineSampleSize + " " + baselineScope : "Need at least 3 usable recent uploads"}</div></div>
       </div>
       <div class="card why">
-        <h2 style="margin:0 0 8px;font-size:14px">Live YouTube signal</h2>
+        <h2 style="margin:0 0 8px;font-size:14px">Why this is interesting</h2>
         <ul>
+          ${baselineReady
+            ? `<li><b>${v.outlier.toFixed(1)}× outlier:</b> ${fmt(v.views)} current views vs a ${fmt(v.baseline)} median baseline from ${v.baselineSampleSize} ${baselineScope}.</li>`
+            : `<li>There is not enough usable recent channel history to calculate a stable median baseline yet.</li>`}
           <li>${fmt(v.viewsDay)} estimated views/day based on current age.</li>
           <li>${Number(v.engagement || 0).toFixed(2)}% public engagement from likes + comments relative to views.</li>
           <li>${v.viewsSub == null ? "Subscriber count is hidden or unavailable." : ratioLabel(v.viewsSub) + " views relative to current channel subscribers."}</li>
-          <li>Channel-baseline outlier detection is intentionally not calculated yet.</li>
         </ul>
+        <p class="meta" style="margin-bottom:0">Outlier Score is a Christina Lab derived metric from public YouTube data, not an official YouTube metric.</p>
       </div>
       <div class="card" style="margin-top:12px;padding:14px">
         <h2 style="margin:0 0 10px;font-size:14px">Creator notes</h2>
@@ -566,7 +579,7 @@
       <div class="card" style="margin-top:12px">
         <div class="card-h"><h2>Related live results</h2><p>Other videos returned for the same search.</p></div>
         ${related.length
-          ? related.map((r) => `<div class="opp">${videoImg(r)}<div><div class="t">${esc(r.title)}</div><div class="meta">${esc(r.channel)} · ${fmt(r.viewsDay)}/day</div></div><span class="num">${fmt(r.views)} views</span></div>`).join("")
+          ? related.map((r) => `<div class="opp">${videoImg(r)}<div><div class="t">${esc(r.title)}</div><div class="meta">${esc(r.channel)} · ${fmt(r.viewsDay)}/day</div></div><span class="outlier num">${r.outlier == null ? "—" : r.outlier.toFixed(1) + "×"}</span></div>`).join("")
           : `<div class="empty"><p>No related live results in this search set.</p></div>`}
       </div>`;
   }
@@ -1042,7 +1055,7 @@
     const reset = document.getElementById("resetF");
     if (reset)
       reset.onclick = () => {
-        state.filters = { time: "7d", type: "All", minViews: 0, sort: "opp", topic: "All" };
+        state.filters = { time: "7d", type: "All", minViews: 0, sort: "out", topic: "All" };
         state.query = "";
         state.searched = false;
         state.liveVideos = [];
