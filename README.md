@@ -23,15 +23,32 @@ The system should not encourage copying viral videos. It should help identify us
 
 ## Current status
 
-### Phase 1 — UI/UX baseline
-The frontend prototype has been designed in Vibe Flow and will be imported into this repository as the visual/product baseline.
+### Phase 1 — UI/UX baseline ✅
+The VibeFlow frontend and final light analytics theme are merged into `main` and treated as the Frontend V1 baseline.
 
-### Phase 2 — Backend
-Planned backend work:
+### Phase 2 — Backend 🚧
 
-- YouTube Data API integration
-- video and channel data ingestion
-- outlier/velocity analytics
+**YouTube V1 milestone implemented on `backend/youtube-v1`:**
+
+- FastAPI backend
+- real YouTube keyword search
+- real video/channel public statistics
+- views/hour
+- views/day
+- public engagement rate
+- views/subscriber ratio
+- existing Discover UI connected to the backend
+- no fake outlier score mixed into live results
+
+**Next backend milestone:**
+
+- recent-channel baseline
+- median-normalized performance
+- real outlier multiplier
+- explainable opportunity ranking
+
+Later work:
+
 - persistence layer
 - saved research and ideas
 - creator experiment tracking
@@ -67,3 +84,5 @@ This repository is public for portfolio and development visibility. It currently
 Never commit API keys, tokens, credentials, or real environment files.
 
 See [docs/PRD.md](docs/PRD.md) for the full product requirements.
+
+For local YouTube V1 setup, see [backend/README.md](backend/README.md).
