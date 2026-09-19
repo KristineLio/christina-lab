@@ -374,3 +374,99 @@ def test_content_type_patterns_include_growth_distribution(tmp_path):
     assert short["medianActualGrowthPerHour"] == 200.0
     # Linear 75th percentile between 300 and 900 = 450.
     assert short["topQuartileActualGrowthPerHour"] == 450.0
+
+
+
+def test_title_signal_specificity_filters_common_words_and_locations(tmp_path):
+    db = tmp_path / "christina_lab.sqlite3"
+    store = SnapshotStore(f"sqlite:///{db}")
+    observed = datetime(2026, 9, 19, 12, 0, tzinfo=timezone.utc)
+
+    rows = [
+        ("v1", "channel-a", "How to Build a Copy Trading Journal in India"),
+        ("v2", "channel-b", "The Copy Trading Journal Setup for a New Trader"),
+        ("v3", "channel-c", "Real Gold Strategy Setup for Day Trading"),
+        ("v4", "channel-d", "Gold Strategy Setup That Actually Works"),
+    ]
+    for video_id, channel_id, title in rows:
+        store.record_snapshots(
+            [
+                _video(
+                    video_id=video_id,
+                    channel_id=channel_id,
+                    title=title,
+                    published_at=observed - timedelta(hours=6),
+                    content_type="Long-form",
+                    views=1000,
+                )
+            ],
+            observed_at=observed,
+            min_interval_minutes=0,
+        )
+
+    patterns = store.patterns_summary()
+    terms = {signal["term"]: signal for signal in patterns["titleSignals"]}
+
+    for noisy in [
+        "for",
+        "the",
+        "how",
+        "new",
+        "real",
+        "day",
+        "india",
+        "gold",
+        "strategy",
+        "setup",
+        "trader",
+    ]:
+        assert noisy not in terms
+
+    assert "copy trading" in terms
+    assert "trading journal" in terms
+    assert "gold strategy" in terms
+    assert terms["copy trading"]["termType"] == "phrase"
+    assert terms["gold strategy"]["termType"] == "phrase"
+
+
+def test_title_signal_ranking_prefers_phrases_over_single_words(tmp_path):
+    db = tmp_path / "christina_lab.sqlite3"
+    store = SnapshotStore(f"sqlite:///{db}")
+    observed = datetime(2026, 9, 19, 12, 0, tzinfo=timezone.utc)
+
+    rows = [
+        ("v1", "channel-a", "Beginner Mistakes With Copy Trading"),
+        ("v2", "channel-b", "Beginner Mistakes in Copy Trading"),
+        ("v3", "channel-c", "Beginner Workflow Explained"),
+        ("v4", "channel-d", "Beginner Guide"),
+        ("v5", "channel-e", "Beginner Checklist"),
+    ]
+    for video_id, channel_id, title in rows:
+        store.record_snapshots(
+            [
+                _video(
+                    video_id=video_id,
+                    channel_id=channel_id,
+                    title=title,
+                    published_at=observed - timedelta(hours=6),
+                    content_type="Long-form",
+                    views=1000,
+                )
+            ],
+            observed_at=observed,
+            min_interval_minutes=0,
+        )
+
+    signals = store.patterns_summary()["titleSignals"]
+    phrase_index = next(
+        index for index, signal in enumerate(signals)
+        if signal["term"] == "beginner mistakes"
+    )
+    word_index = next(
+        index for index, signal in enumerate(signals)
+        if signal["term"] == "beginner"
+    )
+
+    assert phrase_index < word_index
+    assert signals[phrase_index]["termType"] == "phrase"
+    assert signals[word_index]["termType"] == "specific-word"

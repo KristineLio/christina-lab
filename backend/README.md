@@ -350,3 +350,30 @@ The UI now distinguishes:
 - **Analyzed Search Results** — Discover candidates with persisted derived scores
 
 Search Topic Signals also explicitly encourages multiple distinct Discover queries because cross-topic comparisons are not meaningful when only one search topic has been persisted.
+
+
+## Milestone 5.1.1 — Title Signal Specificity
+
+Repeated Title Signals now prioritize useful creative patterns over frequent generic language.
+
+Additional cleanup:
+
+- remove ordinary function/common words such as `for`, `the`, `how`, `new`, and `real`
+- suppress common location noise such as `India`, `Dubai`, `London`, `USA`, `UK`, and `Singapore`
+- suppress broad single words such as `gold`, `strategy`, `setup`, `motivation`, `day`, and `stockmarket`
+- still allow those domain words inside meaningful phrases such as `gold strategy`, `trading setup`, `day trading`, `copy trading`, and `trading journal`
+- normalize `stockmarket` into `stock market` before filtering
+- rank multi-word phrases ahead of single-word signals
+- label returned signals as either `phrase` or `specific-word`
+
+The goal is for the page to favor patterns closer to:
+
+```
+copy trading
+trading journal
+beginner mistakes
+AI tools
+gold strategy
+```
+
+rather than raw frequency terms such as `for`, `the`, `day`, `gold`, or `trader`.
