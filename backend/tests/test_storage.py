@@ -550,5 +550,9 @@ def test_title_phrase_cleanup_suppresses_known_filler_bigrams(tmp_path):
         "motivation trading",
         "funny comedy",
         "trading like",
+        "action",
+        "funny",
+        "comedy",
+        "like",
     ]:
         assert filler not in terms
