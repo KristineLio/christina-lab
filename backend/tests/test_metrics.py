@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
-from app.metrics import (
+from backend.app.metrics import (
     calculate_video_metrics,
     format_duration,
     parse_youtube_duration,
