@@ -77,7 +77,7 @@ class ExperimentCreate(BaseModel):
     ideaId: int = Field(ge=1)
     name: str | None = Field(default=None, max_length=240)
     hypothesis: str | None = Field(default=None, max_length=4000)
-    status: str = Field(default="Draft", max_length=20)
+    status: str | None = Field(default=None, max_length=20)
     decision: str = Field(default="UNDECIDED", max_length=20)
 
 
