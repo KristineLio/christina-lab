@@ -34,11 +34,11 @@ The VibeFlow frontend and final light analytics theme are merged into `main` and
 - real YouTube keyword search
 - real video/channel public statistics
 - views/hour
-- views/day
+- 24h run rate (current pace extrapolated to 24 hours)
 - public engagement rate
 - views/subscriber ratio
-- recent-channel upload history
-- age-adjusted median channel velocity baseline
+- deeper recent-channel history scan with live/upcoming/unusable samples filtered out
+- age-adjusted median channel velocity baseline from up to 12 usable comparison videos
 - expected views at the candidate's current age
 - real age-adjusted outlier multiplier
 - existing Discover + Analyze UI connected to live results
