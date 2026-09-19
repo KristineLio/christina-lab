@@ -182,3 +182,269 @@ def calculate_channel_baseline(
         "baselineScope": scope,
         "baselineMethod": "median-age-adjusted-velocity",
     }
+
+
+
+def _piecewise_score(value: float, points: list[tuple[float, float]]) -> float:
+    """Linearly interpolate a bounded score across transparent breakpoints."""
+    if value <= points[0][0]:
+        return points[0][1]
+    for (x0, y0), (x1, y1) in zip(points, points[1:]):
+        if value <= x1:
+            if x1 == x0:
+                return y1
+            ratio = (value - x0) / (x1 - x0)
+            return y0 + ratio * (y1 - y0)
+    return points[-1][1]
+
+
+def calculate_opportunity_score(
+    *,
+    views: int,
+    subscribers: int | None,
+    views_day: float,
+    engagement: float,
+    views_sub: float | None,
+    age_hours_value: float,
+    outlier: float | None,
+    baseline_sample_size: int,
+    baseline_scope: str,
+    live_broadcast_content: str = "none",
+) -> dict:
+    """Calculate Christina Lab's explainable 0-100 Opportunity Score.
+
+    Components intentionally sum to 100 before guardrails:
+      - age-adjusted outlier: 40
+      - 24h run rate: 20
+      - engagement: 15
+      - views/subscriber: 10
+      - freshness: 10
+      - baseline confidence: 5
+
+    Guardrails keep tiny-channel ratios, weak traction, missing baselines, and
+    live/upcoming content from dominating the ranking.
+    """
+    components: list[dict] = []
+    guardrails: list[dict] = []
+
+    outlier_points = 0
+    if outlier is not None:
+        outlier_points = round(
+            _piecewise_score(
+                max(outlier, 0),
+                [(0, 0), (0.5, 0), (1, 8), (2, 20), (4, 32), (8, 40)],
+            )
+        )
+    components.append(
+        {
+            "key": "outlier",
+            "score": outlier_points,
+            "max": 40,
+            "label": (
+                f"Age-adjusted outlier: {outlier:.1f}×"
+                if outlier is not None
+                else "Age-adjusted outlier unavailable"
+            ),
+        }
+    )
+
+    velocity_points = round(
+        _piecewise_score(
+            max(float(views_day or 0), 0),
+            [(0, 0), (500, 1), (1000, 3), (5000, 8), (20_000, 13), (100_000, 18), (250_000, 20)],
+        )
+    )
+    components.append(
+        {
+            "key": "velocity",
+            "score": velocity_points,
+            "max": 20,
+            "label": f"24h run rate: {int(round(views_day or 0)):,}",
+        }
+    )
+
+    engagement_points = round(
+        _piecewise_score(
+            max(float(engagement or 0), 0),
+            [(0, 0), (0.5, 1), (1, 3), (2, 6), (4, 10), (8, 15)],
+        )
+    )
+    components.append(
+        {
+            "key": "engagement",
+            "score": engagement_points,
+            "max": 15,
+            "label": f"Engagement: {float(engagement or 0):.2f}%",
+        }
+    )
+
+    audience_points = 0
+    if views_sub is not None:
+        audience_points = round(
+            _piecewise_score(
+                max(float(views_sub), 0),
+                [(0, 0), (0.05, 1), (0.1, 2), (0.25, 4), (0.5, 6), (1, 8), (2, 10)],
+            )
+        )
+
+    if subscribers is not None and subscribers < 100:
+        original = audience_points
+        audience_points = min(audience_points, 4)
+        if original > audience_points:
+            guardrails.append(
+                {
+                    "type": "component-cap",
+                    "key": "tiny-channel-ratio",
+                    "label": "Views/subscriber contribution capped because the channel has fewer than 100 subscribers.",
+                }
+            )
+    elif subscribers is not None and subscribers < 1000:
+        original = audience_points
+        audience_points = min(audience_points, 7)
+        if original > audience_points:
+            guardrails.append(
+                {
+                    "type": "component-cap",
+                    "key": "small-channel-ratio",
+                    "label": "Views/subscriber contribution capped because the channel has fewer than 1,000 subscribers.",
+                }
+            )
+
+    components.append(
+        {
+            "key": "audience",
+            "score": audience_points,
+            "max": 10,
+            "label": (
+                f"Views/subscriber: {views_sub:.2f}×"
+                if views_sub is not None
+                else "Views/subscriber unavailable"
+            ),
+        }
+    )
+
+    age = max(float(age_hours_value or 0), 0)
+    if age <= 6:
+        freshness_points = 10
+    elif age <= 24:
+        freshness_points = 9
+    elif age <= 72:
+        freshness_points = 7
+    elif age <= 168:
+        freshness_points = 4
+    elif age <= 720:
+        freshness_points = 1
+    else:
+        freshness_points = 0
+    components.append(
+        {
+            "key": "freshness",
+            "score": freshness_points,
+            "max": 10,
+            "label": f"Fresh signal: {age:.1f}h old",
+        }
+    )
+
+    confidence_points = 0
+    if outlier is not None:
+        if baseline_sample_size >= 9:
+            confidence_points = 5
+        elif baseline_sample_size >= 6:
+            confidence_points = 4
+        elif baseline_sample_size >= 4:
+            confidence_points = 3
+        elif baseline_sample_size >= 3:
+            confidence_points = 2
+
+        if baseline_scope == "all-formats" and confidence_points > 0:
+            confidence_points = max(confidence_points - 1, 1)
+
+    components.append(
+        {
+            "key": "confidence",
+            "score": confidence_points,
+            "max": 5,
+            "label": (
+                f"Baseline confidence: {baseline_sample_size} comparison videos"
+                if outlier is not None
+                else "Baseline confidence unavailable"
+            ),
+        }
+    )
+
+    raw_score = sum(component["score"] for component in components)
+    score = raw_score
+
+    live_state = live_broadcast_content or "none"
+    if live_state == "live":
+        score = max(score - 5, 0)
+        guardrails.append(
+            {
+                "type": "penalty",
+                "key": "live-content",
+                "value": -5,
+                "label": "Live content penalty: current run rate can be unusually inflated during a stream.",
+            }
+        )
+    elif live_state == "upcoming":
+        score = min(score, 20)
+        guardrails.append(
+            {
+                "type": "cap",
+                "key": "upcoming-content",
+                "value": 20,
+                "label": "Upcoming content is capped at 20 until it has real post-publish performance.",
+            }
+        )
+
+    if outlier is None:
+        score = min(score, 55)
+        guardrails.append(
+            {
+                "type": "cap",
+                "key": "missing-baseline",
+                "value": 55,
+                "label": "Opportunity capped at 55 because there is no stable channel baseline yet.",
+            }
+        )
+
+    if views < 100:
+        score = min(score, 25)
+        guardrails.append(
+            {
+                "type": "cap",
+                "key": "very-low-traction",
+                "value": 25,
+                "label": "Opportunity capped at 25 because the video has fewer than 100 views.",
+            }
+        )
+    elif views < 300:
+        score = min(score, 40)
+        guardrails.append(
+            {
+                "type": "cap",
+                "key": "low-traction",
+                "value": 40,
+                "label": "Opportunity capped at 40 because the video has fewer than 300 views.",
+            }
+        )
+    elif views < 1000:
+        score = min(score, 60)
+        guardrails.append(
+            {
+                "type": "cap",
+                "key": "early-traction",
+                "value": 60,
+                "label": "Opportunity capped at 60 until the video reaches 1,000 views.",
+            }
+        )
+
+    score = int(max(0, min(round(score), 100)))
+
+    return {
+        "opportunity": score,
+        "opportunityRaw": int(round(raw_score)),
+        "opportunityComponents": components,
+        "opportunityGuardrails": guardrails,
+        "opportunityScoreVersion": "v1",
+    }
