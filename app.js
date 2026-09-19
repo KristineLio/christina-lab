@@ -39,10 +39,16 @@
     query: restoredLiveSession?.query || "",
     searched: Boolean(restoredLiveSession?.searched && restoredLiveSession?.videos?.length),
     filters: { time: "7d", type: "All", minViews: 0, sort: "opp", topic: "All" },
-    saved: new Set(D.savedSeed),
-    ideas: D.ideas.map((x) => ({ ...x })),
-    experiments: D.experiments.map((x) => ({ ...x })),
+    saved: new Set(),
+    savedResearch: [],
+    ideas: [],
+    experiments: [],
     notes: {},
+    workflowSummary: null,
+    learningSignals: [],
+    workflowLoading: false,
+    workflowLoaded: false,
+    workflowError: "",
     collections: "All",
     savedView: "grid",
     watchTab: "channels",
@@ -96,7 +102,10 @@
   }
 
   function videoById(id) {
-    return allKnownVideos().find((v) => v.id === id);
+    const live = allKnownVideos().find((v) => v.id === id);
+    if (live) return live;
+    const saved = state.savedResearch.find((v) => (v.videoId || v.id) === id);
+    return saved ? { ...saved, id: saved.videoId || saved.id, source: "saved-research", persistedResearch: true } : null;
   }
 
   function ratioLabel(value) {
@@ -155,17 +164,67 @@
     return Math.round(value / (24 * 30)) + "mo";
   }
 
-  async function fetchJson(path) {
-    const response = await fetch(API_BASE + path);
+  async function apiJson(path, options = {}) {
+    const config = { ...options };
+    if (config.body && typeof config.body !== "string") {
+      config.headers = { "Content-Type": "application/json", ...(config.headers || {}) };
+      config.body = JSON.stringify(config.body);
+    }
+    const response = await fetch(API_BASE + path, config);
     if (!response.ok) {
-      let message = "Christina Lab backend could not load this data.";
+      let message = "Christina Lab backend could not complete this request.";
       try {
         const payload = await response.json();
         if (payload.detail) message = payload.detail;
       } catch (_) {}
       throw new Error(message);
     }
+    if (response.status === 204) return null;
     return response.json();
+  }
+
+  async function fetchJson(path) {
+    return apiJson(path);
+  }
+
+  function workflowRoute(path = state.route) {
+    const clean = String(path || "/").split("?")[0] || "/";
+    return (
+      clean === "/saved" ||
+      clean === "/ideas" ||
+      clean === "/lab" ||
+      clean === "/videos" ||
+      clean.startsWith("/experiment/") ||
+      clean.startsWith("/video/")
+    );
+  }
+
+  async function loadWorkflowData(force = false) {
+    if (state.workflowLoading || (state.workflowLoaded && !force)) return;
+    state.workflowLoading = true;
+    state.workflowError = "";
+    if (workflowRoute()) render();
+    try {
+      const payload = await fetchJson("/api/workflow");
+      state.savedResearch = Array.isArray(payload.savedResearch) ? payload.savedResearch : [];
+      state.saved = new Set(state.savedResearch.map((item) => item.videoId || item.id));
+      state.ideas = Array.isArray(payload.ideas) ? payload.ideas : [];
+      state.experiments = Array.isArray(payload.experiments) ? payload.experiments : [];
+      state.workflowSummary = payload.summary || null;
+      state.learningSignals = Array.isArray(payload.learningSignals) ? payload.learningSignals : [];
+      state.notes = Object.fromEntries(
+        state.savedResearch.map((item) => [
+          item.videoId || item.id,
+          { why: item.why || "", adapt: item.adapt || "", angle: item.angle || "" },
+        ])
+      );
+      state.workflowLoaded = true;
+    } catch (error) {
+      state.workflowError = error?.message || "Could not load the creator workflow.";
+    } finally {
+      state.workflowLoading = false;
+      if (workflowRoute()) render();
+    }
   }
 
   async function loadDashboardData(force = false) {
@@ -202,6 +261,7 @@
     const clean = String(path || "/").split("?")[0] || "/";
     if (clean === "/") loadDashboardData();
     if (clean === "/patterns") loadPatternsData();
+    if (workflowRoute(clean)) loadWorkflowData();
   }
 
   function navigate(path) {
