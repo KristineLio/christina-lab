@@ -411,3 +411,164 @@ body {
 .table tbody tr:hover {
   background: #f8fbff;
 }
+
+
+/* WHITE THEME FINAL OVERRIDE — intentionally bright */
+:root {
+  --bg: #ffffff;
+  --bg2: #ffffff;
+  --surf: #ffffff;
+  --surf2: #f7f9fc;
+  --line: #e5e7eb;
+  --text: #111827;
+  --muted: #4b5563;
+  --dim: #6b7280;
+  --accent: #2563eb;
+  --cyan: #0f7490;
+  --go: #15803d;
+  --warn: #a16207;
+  --hold: #b91c1c;
+  --extreme: #1d4ed8;
+}
+
+html,
+body,
+.app,
+.main,
+.page,
+.top,
+.sidebar {
+  background: #ffffff !important;
+}
+
+.sidebar {
+  border-right-color: #e5e7eb !important;
+  box-shadow: none !important;
+}
+
+.top {
+  border-bottom-color: #e5e7eb !important;
+  backdrop-filter: none !important;
+}
+
+.metric,
+.card,
+.kcol,
+.modal,
+.palette,
+.toast {
+  background: #ffffff !important;
+  border-color: #e5e7eb !important;
+  box-shadow: 0 1px 2px rgba(17, 24, 39, .04) !important;
+}
+
+.pipe .col,
+.icard,
+.btn,
+.badge,
+.chip {
+  background: #f8fafc !important;
+  border-color: #e5e7eb !important;
+}
+
+.search-mini,
+.search-lg input,
+.filters select,
+.filters input,
+.form input,
+.form textarea,
+.form select,
+.palette input {
+  background: #ffffff !important;
+  color: #111827 !important;
+  border-color: #d1d5db !important;
+}
+
+.nav a {
+  color: #4b5563 !important;
+}
+
+.nav a:hover {
+  background: #f3f4f6 !important;
+  color: #111827 !important;
+}
+
+.nav a.active {
+  background: #eef4ff !important;
+  color: #1d4ed8 !important;
+  border-color: #c7d7fe !important;
+}
+
+.metric label,
+.card-h p,
+.meta,
+.sub,
+.icard .hook,
+.form label,
+.why li {
+  color: #4b5563 !important;
+}
+
+.nav-sec,
+.profile small,
+.loop,
+.metric .sec,
+.table th {
+  color: #6b7280 !important;
+}
+
+.btn {
+  color: #1f2937 !important;
+}
+
+.btn:hover {
+  background: #f3f4f6 !important;
+  border-color: #cbd5e1 !important;
+}
+
+.btn.primary {
+  background: #2563eb !important;
+  border-color: #1d4ed8 !important;
+  color: #ffffff !important;
+}
+
+.outlier {
+  color: #1d4ed8 !important;
+}
+
+.opp,
+.rank,
+.table td,
+.table th {
+  background: #ffffff !important;
+  border-color: #edf0f3 !important;
+}
+
+.opp:hover,
+.rank:hover,
+.table tbody tr:hover {
+  background: #f8fafc !important;
+}
+
+.tabs button.active {
+  background: #eef4ff !important;
+  border-color: #c7d7fe !important;
+  color: #1d4ed8 !important;
+}
+
+.thumb,
+.video-head img,
+.avatar {
+  background: #eef2f7 !important;
+}
+
+.modal-root,
+.palette-root,
+.drawer-bg.show {
+  background: rgba(17, 24, 39, .18) !important;
+}
+
+.skel {
+  background: linear-gradient(90deg, #f3f4f6, #ffffff, #f3f4f6) !important;
+  background-size: 200% 100% !important;
+}
