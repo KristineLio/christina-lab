@@ -431,6 +431,18 @@
     };
   }
 
+  function inheritedExperimentStatus(ideaStatus) {
+    if (ideaStatus === "Ready") return "Ready";
+    if (ideaStatus === "Published") return "Published";
+    return "Draft";
+  }
+
+  function experimentStatusOptions(status) {
+    return ["Draft", "Ready", "Published"]
+      .map((value) => `<option ${value === status ? "selected" : ""}>${value}</option>`)
+      .join("");
+  }
+
   function openExperimentModal(idea = null) {
     if (!state.ideas.length) {
       toast("Create an idea first");
@@ -438,11 +450,12 @@
       return;
     }
     const selected = idea || state.ideas[0];
+    const inheritedStatus = inheritedExperimentStatus(selected.status);
     const m = $("modal");
     m.hidden = false;
     m.innerHTML = `<div class="modal">
       <h2 style="margin:0 0 6px;font-size:16px">Create experiment</h2>
-      <p class="meta" style="margin-top:0">Turn an idea into a measurable test. Results and decisions stay editable after publishing.</p>
+      <p class="meta" style="margin-top:0">Turn an idea into a measurable test. New experiments inherit the source idea's workflow status.</p>
       <form class="form" id="experimentForm">
         <label>Idea
           <select name="ideaId" id="experimentIdea">
@@ -451,7 +464,7 @@
         </label>
         <label>Experiment name <input name="name" required value="${esc(selected.title)}" /></label>
         <label>Hypothesis <textarea name="hypothesis" rows="3">${esc(selected.hypothesis || "")}</textarea></label>
-        <label>Status <select name="status"><option>Draft</option><option>Ready</option><option>Published</option></select></label>
+        <label>Status <select name="status">${experimentStatusOptions(inheritedStatus)}</select></label>
         <div class="actions"><button class="btn ghost" type="button" id="cancelM">Cancel</button><button class="btn primary" type="submit">Create experiment</button></div>
       </form>
     </div>`;
@@ -465,6 +478,7 @@
       const form = $("experimentForm");
       form.name.value = nextIdea.title;
       form.hypothesis.value = nextIdea.hypothesis || "";
+      form.status.value = inheritedExperimentStatus(nextIdea.status);
     };
     $("experimentForm").onsubmit = async (e) => {
       e.preventDefault();
