@@ -41,9 +41,11 @@ The VibeFlow frontend and final light analytics theme are merged into `main` and
 - age-adjusted median channel velocity baseline from up to 12 usable comparison videos
 - expected views at the candidate's current age
 - real age-adjusted outlier multiplier
-- explainable Opportunity Score v1 (0–100)
+- explainable Opportunity Score v1.1 (0–100)
 - score breakdown across outlier, velocity, engagement, views/subscriber, freshness, and baseline confidence
-- guardrails for tiny channels, weak traction, missing baselines, live content, and upcoming content
+- guardrails for tiny channels, missing baselines, live content, and upcoming content
+- gradual traction-confidence weighting instead of hard view-count score cliffs
+- precise views/subscriber display for very small ratios
 - existing Discover + Analyze UI connected to live results
 - insufficient channel history is shown explicitly instead of inventing a score
 
