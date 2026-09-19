@@ -19,10 +19,25 @@
       ? "http://127.0.0.1:8000"
       : "");
 
+  const LIVE_SESSION_KEY = "christinaLab.liveResearch.v1";
+
+  function readLiveSession() {
+    try {
+      const raw = sessionStorage.getItem(LIVE_SESSION_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      return parsed && Array.isArray(parsed.videos) ? parsed : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  const restoredLiveSession = readLiveSession();
+
   const state = {
     route: location.hash.slice(1) || "/",
-    query: "",
-    searched: false,
+    query: restoredLiveSession?.query || "",
+    searched: Boolean(restoredLiveSession?.searched && restoredLiveSession?.videos?.length),
     filters: { time: "7d", type: "All", minViews: 0, sort: "opp", topic: "All" },
     saved: new Set(D.savedSeed),
     ideas: D.ideas.map((x) => ({ ...x })),
@@ -35,9 +50,22 @@
     error: false,
     connected: false,
     niches: "trading, AI tools, build in public",
-    liveVideos: [],
+    liveVideos: restoredLiveSession?.videos || [],
     apiError: "",
   };
+
+  function writeLiveSession() {
+    try {
+      sessionStorage.setItem(
+        LIVE_SESSION_KEY,
+        JSON.stringify({
+          query: state.query,
+          searched: state.searched,
+          videos: state.liveVideos,
+        })
+      );
+    } catch (_) {}
+  }
 
   function fmt(n) {
     if (n == null) return "—";
@@ -347,6 +375,7 @@
 
       const payload = await response.json();
       state.liveVideos = Array.isArray(payload.videos) ? payload.videos : [];
+      writeLiveSession();
     } catch (error) {
       state.liveVideos = [];
       state.apiError = error?.message || "The YouTube backend could not load this search.";
@@ -625,7 +654,15 @@
   }
 
   function analysis(id) {
-    const v = videoById(id) || D.videos[0];
+    const v = videoById(id);
+    if (!v) {
+      return `
+        <div class="empty">
+          <h3>Live research result not available.</h3>
+          <p>Christina Lab will not substitute demo analysis for a missing live YouTube result. Return to Discover and run the search again.</p>
+          <button class="btn primary" data-go="/discover">Back to Discover</button>
+        </div>`;
+    }
     const related = allKnownVideos().filter((x) => x.topic === v.topic && x.id !== v.id).slice(0, 4);
     const n = state.notes[v.id] || { why: "", adapt: "", angle: "" };
     if (v.source === "youtube") return liveAnalysis(v, related, n);
@@ -1100,6 +1137,7 @@
         state.searched = false;
         state.liveVideos = [];
         state.apiError = "";
+        try { sessionStorage.removeItem(LIVE_SESSION_KEY); } catch (_) {}
         render();
       };
     ["ftime", "ftype", "fsort", "ftopic", "fmin"].forEach((id) => {
