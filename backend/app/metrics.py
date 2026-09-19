@@ -72,7 +72,7 @@ def calculate_video_metrics(
         "viewsHour": round(views_hour, 2),
         "viewsDay": round(views_day, 2),
         "engagement": round(engagement, 2),
-        "viewsSub": round(views_sub, 4) if views_sub is not None else None,
+        "viewsSub": round(views_sub, 6) if views_sub is not None else None,
     }
 
 
@@ -198,6 +198,28 @@ def _piecewise_score(value: float, points: list[tuple[float, float]]) -> float:
     return points[-1][1]
 
 
+
+def _format_views_subscriber_ratio(value: float) -> str:
+    """Format tiny audience ratios without rounding them to a misleading 0.00×."""
+    ratio = max(float(value), 0.0)
+    percent = ratio * 100
+
+    if ratio >= 0.1:
+        ratio_text = f"{ratio:.2f}×"
+    elif ratio >= 0.001:
+        ratio_text = f"{ratio:.3f}×"
+    else:
+        ratio_text = f"{ratio:.4f}×"
+
+    if percent >= 1:
+        percent_text = f"{percent:.1f}%"
+    elif percent >= 0.1:
+        percent_text = f"{percent:.2f}%"
+    else:
+        percent_text = f"{percent:.3f}%"
+
+    return f"Views/subscriber: {ratio_text} ({percent_text} of subscribers)"
+
 def calculate_opportunity_score(
     *,
     views: int,
@@ -316,7 +338,7 @@ def calculate_opportunity_score(
             "score": audience_points,
             "max": 10,
             "label": (
-                f"Views/subscriber: {views_sub:.2f}×"
+                _format_views_subscriber_ratio(views_sub)
                 if views_sub is not None
                 else "Views/subscriber unavailable"
             ),
@@ -408,34 +430,32 @@ def calculate_opportunity_score(
             }
         )
 
-    if views < 100:
-        score = min(score, 25)
+    # Traction confidence is continuous rather than a hard view-count cliff.
+    # At very low view counts, engagement/outlier ratios are noisy, so the
+    # score is discounted. Confidence rises smoothly to 100% by 1,000 views.
+    traction_factor = _piecewise_score(
+        max(float(views or 0), 0),
+        [
+            (0, 0.50),
+            (100, 0.60),
+            (300, 0.75),
+            (600, 0.90),
+            (1000, 1.00),
+        ],
+    )
+    if traction_factor < 1:
+        score_before_traction = score
+        score = score * traction_factor
         guardrails.append(
             {
-                "type": "cap",
-                "key": "very-low-traction",
-                "value": 25,
-                "label": "Opportunity capped at 25 because the video has fewer than 100 views.",
-            }
-        )
-    elif views < 300:
-        score = min(score, 40)
-        guardrails.append(
-            {
-                "type": "cap",
-                "key": "low-traction",
-                "value": 40,
-                "label": "Opportunity capped at 40 because the video has fewer than 300 views.",
-            }
-        )
-    elif views < 1000:
-        score = min(score, 60)
-        guardrails.append(
-            {
-                "type": "cap",
-                "key": "early-traction",
-                "value": 60,
-                "label": "Opportunity capped at 60 until the video reaches 1,000 views.",
+                "type": "multiplier",
+                "key": "traction-confidence",
+                "value": round(traction_factor, 3),
+                "label": (
+                    f"Traction confidence {traction_factor * 100:.0f}% at {views:,} views: "
+                    f"score adjusted gradually from {round(score_before_traction)} "
+                    f"to {round(score)}."
+                ),
             }
         )
 
