@@ -5,6 +5,7 @@ import os
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from .storage import SnapshotStore
@@ -13,6 +14,7 @@ from .youtube import YouTubeAPIError, YouTubeClient
 
 load_dotenv()
 
+FRONTEND_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 snapshot_store = SnapshotStore()
 
 app = FastAPI(
@@ -291,3 +293,17 @@ async def update_experiment(experiment_id: int, payload: ExperimentUpdate) -> di
     if item is None:
         raise HTTPException(status_code=404, detail="Experiment not found.")
     return item
+
+
+# Serve the lightweight frontend from the same Render service for the alpha deployment.
+@app.get("/", include_in_schema=False)
+async def frontend_index():
+    return FileResponse(os.path.join(FRONTEND_DIR, "index.html"))
+
+
+@app.get("/{asset_name}", include_in_schema=False)
+async def frontend_asset(asset_name: str):
+    allowed_assets = {"styles.css", "data.js", "app.js", "thumb.jpg"}
+    if asset_name not in allowed_assets:
+        raise HTTPException(status_code=404, detail="Not found.")
+    return FileResponse(os.path.join(FRONTEND_DIR, asset_name))
