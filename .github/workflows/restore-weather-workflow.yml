@@ -1,0 +1,108 @@
+name: Restore Christina Lab weather workflow
+
+on:
+  push:
+    branches:
+      - ops/restore-workflow-20260921
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Restore saved research and weather idea
+        run: |
+          python - <<'PY'
+          import json
+          import time
+          import urllib.parse
+          import urllib.request
+          import urllib.error
+
+          base = "https://christina-lab.onrender.com"
+          video_id = "bvdN5ebTcwo"
+          idea_title = "I Built a Weather App to Finally Start My Coding Channel"
+
+          def req(path, method="GET", payload=None):
+              data = None if payload is None else json.dumps(payload).encode("utf-8")
+              request = urllib.request.Request(
+                  base + path,
+                  data=data,
+                  method=method,
+                  headers={"Content-Type": "application/json"},
+              )
+              try:
+                  with urllib.request.urlopen(request, timeout=90) as r:
+                      body = r.read().decode("utf-8")
+                      return r.status, json.loads(body) if body else {}
+              except urllib.error.HTTPError as e:
+                  body = e.read().decode("utf-8")
+                  try:
+                      parsed = json.loads(body)
+                  except Exception:
+                      parsed = {"raw": body}
+                  return e.code, parsed
+
+          # Make sure the source video exists in the fresh research DB.
+          exact = urllib.parse.quote("I Accidentally Built ANOTHER Profitable AI App in 48 Hours")
+          status, discovery = req(
+              f"/api/discover?q={exact}&mode=reference&published_after_days=0&max_results=15"
+          )
+          print("DISCOVER", status, discovery.get("count") if isinstance(discovery, dict) else discovery)
+          if status != 200:
+              raise SystemExit(f"Discover failed: {status} {discovery}")
+
+          ids = {item.get("id") for item in discovery.get("videos", [])}
+          if video_id not in ids:
+              fallback = urllib.parse.quote("Erik Cupsa AI app 48 hours")
+              status, discovery = req(
+                  f"/api/discover?q={fallback}&mode=reference&published_after_days=0&max_results=25"
+              )
+              print("DISCOVER_FALLBACK", status, discovery.get("count") if isinstance(discovery, dict) else discovery)
+              if status != 200:
+                  raise SystemExit(f"Fallback discover failed: {status} {discovery}")
+              ids = {item.get("id") for item in discovery.get("videos", [])}
+
+          if video_id not in ids:
+              raise SystemExit("Reference video was not found by YouTube discovery.")
+
+          research = {
+              "why": "Strong reference for how I want to tell my weather-app build. It shows the finished project immediately, gives a personal reason for building it, then follows the decisions, problems and iterations instead of becoming a coding tutorial. The technical details support the story.",
+              "adapt": "Open with the finished weather app within the first few seconds. Explain briefly that I’ve wanted to start documenting my coding journey and decided to stop planning and actually build something. Show only the interesting stages of the build, especially mistakes, things that looked wrong, API/debugging issues and visible before/after improvements. End on the working app and what I learned.",
+              "angle": "This isn’t an experienced founder trying to ship another startup in 48 hours. I’m at the beginning of my own From Code to Career experiment. The weather app is intentionally a small project — the story is me actually starting, building something real and learning how to turn the process into content.",
+              "collection": "From Code to Career references",
+          }
+          status, saved = req(f"/api/research/{video_id}", "PUT", research)
+          print("RESEARCH", status, json.dumps(saved))
+          if status != 200:
+              raise SystemExit(f"Research restore failed: {status} {saved}")
+
+          status, workflow = req("/api/workflow")
+          if status != 200:
+              raise SystemExit(f"Workflow read failed: {status} {workflow}")
+
+          existing = next(
+              (item for item in workflow.get("ideas", []) if item.get("title") == idea_title),
+              None,
+          )
+          if existing:
+              print("IDEA_ALREADY_EXISTS", json.dumps(existing))
+              raise SystemExit(0)
+
+          idea = {
+              "sourceVideoId": video_id,
+              "title": idea_title,
+              "hook": "I’ve been saying I want to start a coding channel for ages, so I stopped planning and built a weather app. This is project one.",
+              "topic": "Building my first coding project for From Code to Career",
+              "contentType": "Long-form",
+              "angle": "A beginner build-in-public story, not a weather-app tutorial. Focus on the process, mistakes, decisions and final result.",
+              "audience": "Beginner developers, students and people learning to build real projects with code/AI.",
+              "hypothesis": "Showing the finished app immediately and framing the video around a real beginner journey — goal → build → problem → fix → result — will be more engaging than explaining the project step-by-step as a tutorial.",
+              "notes": "Keep the first version genuine and relatively short. Show progress visually. Do not hide mistakes. Cut repetitive coding footage. The weather app itself does not need to be impressive; finishing and publishing project one is the payoff. Suggested structure: 0:00 finished app + hook → 0:15 why you’re doing this → 0:40 starting the build → 1:30 first problem/mistake → 2:30 fix + visible improvement → 3:30 final app → 4:00-ish what you learned + ‘project one done.’",
+              "priority": "High",
+              "status": "Ready",
+          }
+          status, created = req("/api/ideas", "POST", idea)
+          print("IDEA", status, json.dumps(created))
+          if status != 201:
+              raise SystemExit(f"Idea restore failed: {status} {created}")
+          PY
