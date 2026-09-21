@@ -440,6 +440,158 @@
     };
   }
 
+  function fileToBase64(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error("Could not read the selected file."));
+      reader.onload = () => {
+        const value = String(reader.result || "");
+        resolve(value.includes(",") ? value.split(",", 2)[1] : value);
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function formatBytes(value) {
+    const bytes = Number(value || 0);
+    if (bytes < 1024) return bytes + " B";
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(bytes >= 10240 ? 0 : 1) + " KB";
+    return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+  }
+
+  async function openIdeaDocumentsModal(idea) {
+    const m = $("modal");
+    m.hidden = false;
+    m.innerHTML = `<div class="modal idea-modal">
+      <h2 style="margin:0 0 6px;font-size:16px">Idea documents</h2>
+      <p class="meta" style="margin-top:0">${esc(idea.title)}</p>
+      <div class="card" style="padding:14px"><div class="skel"></div><div class="skel"></div></div>
+    </div>`;
+    m.onclick = (e) => {
+      if (e.target === m) m.hidden = true;
+    };
+
+    try {
+      const payload = await fetchJson("/api/ideas/" + encodeURIComponent(idea.id) + "/documents");
+      renderIdeaDocumentsModal(idea, Array.isArray(payload.items) ? payload.items : []);
+    } catch (error) {
+      m.innerHTML = `<div class="modal idea-modal">
+        <h2 style="margin:0 0 6px;font-size:16px">Idea documents</h2>
+        <p class="meta">${esc(error?.message || "Could not load documents.")}</p>
+        <div class="actions"><button class="btn ghost" id="cancelM">Close</button></div>
+      </div>`;
+      $("cancelM").onclick = () => (m.hidden = true);
+    }
+  }
+
+  function renderIdeaDocumentsModal(idea, documents) {
+    const m = $("modal");
+    const kinds = {
+      script: "Script",
+      plan: "Plan / PRD",
+      reference: "Reference",
+      other: "Other",
+    };
+    m.innerHTML = `<div class="modal idea-modal">
+      <h2 style="margin:0 0 6px;font-size:16px">Idea documents</h2>
+      <p class="meta" style="margin-top:0">Keep the creative source material for <b>${esc(idea.title)}</b> with the experiment.</p>
+
+      <form class="form" id="documentForm">
+        <label>Document type
+          <select name="kind">
+            <option value="script">Script</option>
+            <option value="plan">Plan / PRD</option>
+            <option value="reference">Reference</option>
+            <option value="other">Other</option>
+          </select>
+        </label>
+        <label>File
+          <input name="file" type="file" required accept=".docx,.pdf,.md,.txt" />
+        </label>
+        <div class="meta">DOCX, PDF, Markdown, or text · maximum 5 MB per file.</div>
+        <div class="actions">
+          <button class="btn ghost" type="button" id="cancelM">Close</button>
+          <button class="btn primary" type="submit">Upload document</button>
+        </div>
+      </form>
+
+      <div class="card" style="margin-top:12px">
+        <div class="card-h"><h2>Attached files</h2><p>${documents.length} document${documents.length === 1 ? "" : "s"}</p></div>
+        ${documents.length
+          ? documents.map((doc) => `<div class="rank">
+              <span><b>${esc(doc.filename)}</b><div class="meta">${esc(kinds[doc.kind] || doc.kind || "Other")} · ${formatBytes(doc.sizeBytes)}</div></span>
+              <span></span>
+              <span class="meta">${esc(String(doc.uploadedAt || "").replace("T", " ").replace("Z", " UTC"))}</span>
+              <span class="actions">
+                <a class="btn" href="${API_BASE}/api/idea-documents/${doc.id}">Download</a>
+                <button class="btn ghost" type="button" data-delete-doc="${doc.id}">Delete</button>
+              </span>
+            </div>`).join("")
+          : `<div class="empty"><p>No documents attached yet. Add the current script and production plan here.</p></div>`}
+      </div>
+    </div>`;
+
+    $("cancelM").onclick = () => (m.hidden = true);
+    m.onclick = (e) => {
+      if (e.target === m) m.hidden = true;
+    };
+
+    $("documentForm").onsubmit = async (e) => {
+      e.preventDefault();
+      const submit = e.submitter;
+      if (submit) submit.disabled = true;
+      const form = e.target;
+      const file = form.file.files?.[0];
+      if (!file) {
+        toast("Choose a file first");
+        if (submit) submit.disabled = false;
+        return;
+      }
+      if (file.size > 5 * 1024 * 1024) {
+        toast("Document must be 5 MB or smaller");
+        if (submit) submit.disabled = false;
+        return;
+      }
+      try {
+        const dataBase64 = await fileToBase64(file);
+        await apiJson("/api/ideas/" + encodeURIComponent(idea.id) + "/documents", {
+          method: "POST",
+          body: {
+            kind: form.kind.value,
+            filename: file.name,
+            contentType: file.type || "application/octet-stream",
+            dataBase64,
+          },
+        });
+        const payload = await fetchJson("/api/ideas/" + encodeURIComponent(idea.id) + "/documents");
+        const items = Array.isArray(payload.items) ? payload.items : [];
+        idea.documentCount = items.length;
+        toast("Document uploaded");
+        renderIdeaDocumentsModal(idea, items);
+      } catch (error) {
+        toast(error?.message || "Could not upload document");
+        if (submit) submit.disabled = false;
+      }
+    };
+
+    document.querySelectorAll("[data-delete-doc]").forEach((button) => {
+      button.onclick = async () => {
+        try {
+          await apiJson("/api/idea-documents/" + encodeURIComponent(button.dataset.deleteDoc), {
+            method: "DELETE",
+          });
+          const payload = await fetchJson("/api/ideas/" + encodeURIComponent(idea.id) + "/documents");
+          const items = Array.isArray(payload.items) ? payload.items : [];
+          idea.documentCount = items.length;
+          toast("Document removed");
+          renderIdeaDocumentsModal(idea, items);
+        } catch (error) {
+          toast(error?.message || "Could not remove document");
+        }
+      };
+    });
+  }
+
   function inheritedExperimentStatus(ideaStatus) {
     if (ideaStatus === "Ready") return "Ready";
     if (ideaStatus === "Published") return "Published";
@@ -1141,8 +1293,9 @@
             ${cards.map((idea) => `<div class="icard" draggable="true" data-idea="${idea.id}">
               <div class="t">${esc(idea.title)}</div>
               <div class="hook">${esc(idea.hook || idea.hypothesis || "No hook/hypothesis written yet")}</div>
-              <div class="meta">${esc(idea.topic || "Unspecified")} · ${esc(idea.type)} · ${esc(idea.priority)} priority${idea.sourceVideoId ? " · sourced from research" : ""}</div>
+              <div class="meta">${esc(idea.topic || "Unspecified")} · ${esc(idea.type)} · ${esc(idea.priority)} priority${idea.sourceVideoId ? " · sourced from research" : ""} · ${Number(idea.documentCount || 0)} doc${Number(idea.documentCount || 0) === 1 ? "" : "s"}</div>
               <div class="actions" style="margin-top:8px">
+                <button class="btn" data-docs="${idea.id}">Documents</button>
                 <button class="btn primary" data-create-exp="${idea.id}">Create Experiment</button>
               </div>
             </div>`).join("")}
@@ -1585,6 +1738,12 @@
     });
     document.getElementById("newIdea")?.addEventListener("click", () => openIdeaModal(null));
     document.getElementById("newExperiment")?.addEventListener("click", () => openExperimentModal(null));
+    document.querySelectorAll("[data-docs]").forEach((button) => {
+      button.onclick = () => {
+        const idea = state.ideas.find((item) => String(item.id) === String(button.dataset.docs));
+        if (idea) openIdeaDocumentsModal(idea);
+      };
+    });
     document.querySelectorAll("[data-create-exp]").forEach((button) => {
       button.onclick = () => {
         const idea = state.ideas.find((item) => String(item.id) === String(button.dataset.createExp));
