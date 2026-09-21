@@ -852,6 +852,7 @@
       <div class="drawer-bg" id="dbg"></div>
       <aside class="sidebar" id="sb">
         <div class="brand">Christina <span>Lab</span></div>
+        <div class="meta" style="padding:0 18px 8px">Research → Create → Learn</div>
         <nav class="nav">
           ${NAV.map((n) =>
             n[1] == null
@@ -988,9 +989,23 @@
     const maturity = d.dataMaturity || {};
 
     return `
-      <div class="loop">Discover → Analyze → Snapshot → Compare → <b>Learn</b></div>
-      <div style="font-size:22px;font-weight:600">Christina Lab research dashboard</div>
-      <p class="sub">Real metrics from your local research database — no demo counters.</p>
+      <div class="workflow-rail">
+        <span class="on">Discover</span><span class="arr">→</span>
+        <span>Saved</span><span class="arr">→</span>
+        <span>Idea</span><span class="arr">→</span>
+        <span>Docs</span><span class="arr">→</span>
+        <span>Experiment</span><span class="arr">→</span>
+        <span>Publish</span><span class="arr">→</span>
+        <span>Patterns</span>
+      </div>
+      <div style="font-size:20px;font-weight:600">What to work on next</div>
+      <p class="sub">Research, create, test, and learn — from your live Christina Lab database.</p>
+      <div class="dash-lanes">
+        <div class="col"><h3>Researching</h3><div class="val num">${fmt(m.analyzedCandidates || 0)}</div><div class="sec">Discover results persisted</div></div>
+        <div class="col"><h3>Creating</h3><div class="val num">${fmt((state.ideas || []).length)}</div><div class="sec">Ideas in the pipeline</div></div>
+        <div class="col"><h3>Testing</h3><div class="val num">${fmt((state.experiments || []).length)}</div><div class="sec">Experiments running</div></div>
+        <div class="col"><h3>Learning</h3><div class="val num">${fmt(m.videosWithMultipleSnapshots || 0)}</div><div class="sec">Videos with real growth history</div></div>
+      </div>
 
       <div class="metrics">
         <div class="metric"><label>Public Videos Observed</label><div class="val num">${fmt(m.videosTracked || 0)}</div><div class="sec">candidates + channel-history videos</div></div>
@@ -1093,9 +1108,9 @@
       <p class="sub">${referenceMode
         ? "Find proven videos to study for format, title, hook, pacing, and positioning — without limiting yourself to this week's uploads."
         : "Search real public YouTube data and compare velocity, engagement, and audience-normalized reach."}</p>
-      <div class="filters" style="margin-bottom:10px">
-        <button class="btn ${!referenceMode ? "primary" : "ghost"}" type="button" data-mode="trend">🔥 Trends</button>
-        <button class="btn ${referenceMode ? "primary" : "ghost"}" type="button" data-mode="reference">🔎 References</button>
+      <div class="mode-switch">
+        <button class="btn ${!referenceMode ? "primary" : "ghost"}" type="button" data-mode="trend">Trends — what's moving now</button>
+        <button class="btn ${referenceMode ? "primary" : "ghost"}" type="button" data-mode="reference">References — what to study</button>
       </div>
       <form class="search-lg" id="ds">
         <input name="q" value="${esc(state.query)}" placeholder="${referenceMode ? "Describe the kind of video you want references for..." : "Search topics, keywords, or channels..."}" />
@@ -1400,21 +1415,23 @@
         ? `<div class="empty"><h3>No saved research yet.</h3><p>Save a real Discover result, write why it matters, then turn it into an idea.</p><button class="btn primary" data-go="/discover">Explore Videos</button></div>`
         : state.savedView === "grid"
         ? `<div class="grid2">${items.map((v) => `
-            <div class="card" style="padding:12px">
+            <div class="card research-card">
               ${videoImg(v)}
-              <div class="t" style="margin-top:8px">${esc(v.title)}</div>
-              <div class="meta">${esc(v.channel)} · ${esc(v.topic || "Unspecified")} · ${esc(v.type)} · ${fmt(v.views)} views</div>
+              <div class="t" style="margin-top:10px">${esc(v.title)}</div>
+              <div class="meta">${esc(v.channel)} · ${esc(v.topic || "Unspecified")} · ${esc(v.type)} · ${fmt(v.views)} views${v.collection ? " · " + esc(v.collection) : ""}</div>
               <div class="actions" style="margin:8px 0">
                 <span class="num">${v.opportunity == null ? "—" : v.opportunity + "/100"}</span>
                 <span class="outlier">${v.outlier == null ? "Baseline pending" : Number(v.outlier).toFixed(1) + "×"}</span>
                 <span class="badge">${v.ideaCount || 0} idea${Number(v.ideaCount || 0) === 1 ? "" : "s"}</span>
               </div>
-              <div class="meta"><b>Why:</b> ${esc(v.why || "Not written yet")}</div>
-              <div class="meta" style="margin-top:4px"><b>Adapt:</b> ${esc(v.adapt || "Not written yet")}</div>
-              <div class="meta" style="margin-top:4px"><b>Angle:</b> ${esc(v.angle || "Not written yet")}</div>
-              <div class="actions" style="margin-top:10px">
-                <button class="btn" data-act="analyze" data-id="${esc(v.videoId || v.id)}">Open research</button>
+              <div class="why-block">
+                <div><b>Why it matters</b> — ${esc(v.why || "Not written yet")}</div>
+                <div><b>What I can adapt</b> — ${esc(v.adapt || "Not written yet")}</div>
+                <div><b>Unique angle</b> — ${esc(v.angle || "Not written yet")}</div>
+              </div>
+              <div class="actions" style="margin-top:12px">
                 <button class="btn primary" data-act="idea" data-id="${esc(v.videoId || v.id)}">Turn into Idea</button>
+                <button class="btn" data-act="analyze" data-id="${esc(v.videoId || v.id)}">Open research</button>
                 <button class="btn ghost" data-act="unsave" data-id="${esc(v.videoId || v.id)}">Remove</button>
               </div>
             </div>`).join("")}</div>`
@@ -1435,10 +1452,15 @@
     if (gate) return gate;
     const cols = ["Draft", "Ready", "Published"];
     return `
-      <p class="sub">Persisted idea pipeline: Draft → Ready → Published. Drag cards between stages; every move is saved to SQLite.</p>
+      <p class="sub">Pipeline: Draft → Ready → Published. Drag a card to change stage — the API still saves each move.</p>
+      <div class="workflow-rail">
+        <span class="${(state.ideas.filter(i=>i.status==='Draft').length) ? 'on' : ''}">Draft</span><span class="arr">→</span>
+        <span class="${(state.ideas.filter(i=>i.status==='Ready').length) ? 'on' : ''}">Ready</span><span class="arr">→</span>
+        <span class="${(state.ideas.filter(i=>i.status==='Published').length) ? 'on' : ''}">Published</span>
+      </div>
       <div class="actions" style="margin-bottom:12px">
         <button class="btn primary" id="newIdea">Create idea</button>
-        <span class="meta">${state.ideas.length} persisted idea${state.ideas.length === 1 ? "" : "s"}</span>
+        <span class="meta">${state.ideas.length} idea${state.ideas.length === 1 ? "" : "s"}</span>
       </div>
       ${state.ideas.length === 0 ? `<div class="empty"><h3>No ideas yet.</h3><p>Turn a Saved Research item into your first testable content idea.</p><button class="btn primary" data-go="/saved">Open Saved Research</button></div>` : `
       <div class="kanban">
@@ -1448,8 +1470,14 @@
             ${cards.map((idea) => `<div class="icard" draggable="true" data-idea="${idea.id}">
               <div class="t">${esc(idea.title)}</div>
               <div class="hook">${esc(idea.hook || idea.hypothesis || "No hook/hypothesis written yet")}</div>
-              <div class="meta">${esc(idea.topic || "Unspecified")} · ${esc(idea.type)} · ${esc(idea.priority)} priority${idea.sourceVideoId ? " · sourced from research" : ""} · ${Number(idea.documentCount || 0)} doc${Number(idea.documentCount || 0) === 1 ? "" : "s"}</div>
-              <div class="actions" style="margin-top:8px">
+              <div class="stats">
+                <span>${esc(idea.priority || "—")} priority</span>
+                <span>${esc(idea.status)}</span>
+                <span>${idea.sourceVideoId ? "1 source" : "No source"}</span>
+                <span>${Number(idea.documentCount || 0)} docs</span>
+              </div>
+              <div class="meta">${esc(idea.topic || "Unspecified")} · ${esc(idea.type)}</div>
+              <div class="actions" style="margin-top:10px">
                 <button class="btn" data-docs="${idea.id}">Documents</button>
                 <button class="btn primary" data-create-exp="${idea.id}">Create Experiment</button>
               </div>
