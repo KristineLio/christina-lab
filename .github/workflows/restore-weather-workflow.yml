@@ -1,0 +1,69 @@
+name: Restore Weather App workflow
+
+on:
+  push:
+    branches:
+      - ops/restore-weather-workflow-20260921
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Restore saved research and idea
+        run: |
+          python - <<'PY'
+          import json, urllib.parse, urllib.request
+
+          base = "https://christina-lab.onrender.com"
+          video_id = "bvdN5ebTcwo"
+
+          def api(path, method="GET", payload=None):
+              data = None if payload is None else json.dumps(payload).encode("utf-8")
+              req = urllib.request.Request(
+                  base + path,
+                  data=data,
+                  method=method,
+                  headers={"Content-Type": "application/json"},
+              )
+              with urllib.request.urlopen(req, timeout=90) as resp:
+                  raw = resp.read().decode("utf-8")
+                  return resp.status, json.loads(raw) if raw else {}
+
+          # Rehydrate the YouTube video record first so Saved Research can point to it.
+          q = urllib.parse.quote("I Accidentally Built ANOTHER Profitable AI App in 48 Hours")
+          st, found = api(f"/api/discover?q={q}&published_after_days=0&mode=reference&max_results=25")
+          ids = {str(v.get("id")) for v in found.get("videos", [])}
+          print("DISCOVER", st, "target_found=", video_id in ids, "count=", len(ids))
+          if video_id not in ids:
+              raise SystemExit("Target reference video was not returned by YouTube discovery.")
+
+          research = {
+              "why": "Strong reference for how I want to tell my weather-app build. It shows the finished project immediately, gives a personal reason for building it, then follows the decisions, problems and iterations instead of becoming a coding tutorial. The technical details support the story.",
+              "adapt": "Open with the finished weather app within the first few seconds. Explain briefly that I’ve wanted to start documenting my coding journey and decided to stop planning and actually build something. Show only the interesting stages of the build, especially mistakes, things that looked wrong, API/debugging issues and visible before/after improvements. End on the working app and what I learned.",
+              "angle": "This isn’t an experienced founder trying to ship another startup in 48 hours. I’m at the beginning of my own From Code to Career experiment. The weather app is intentionally a small project — the story is me actually starting, building something real and learning how to turn the process into content.",
+              "collection": "From Code to Career references",
+          }
+          st, saved = api(f"/api/research/{video_id}", "PUT", research)
+          print("RESEARCH", st, json.dumps(saved))
+
+          st, existing = api("/api/ideas")
+          if existing.get("items"):
+              print("IDEAS_ALREADY_EXIST", json.dumps(existing))
+              raise SystemExit(0)
+
+          idea = {
+              "sourceVideoId": video_id,
+              "title": "I Rebuilt My Student Weather App — and Finally Started My Coding Channel",
+              "hook": "I’ve been saying I want to start a coding channel for ages. So instead of planning it again, I went back to one of my old student projects and rebuilt it properly. This is Project One of From Code to Career.",
+              "topic": "Project One: rebuilding my student Python weather app for From Code to Career",
+              "contentType": "Long-form",
+              "angle": "A story-first build diary/case study: result first, personal reason, visible problem, one key architectural decision, a second reliability problem, proof through 161 tests, then the finished portfolio project. Technical details are evidence inside the story, not a tutorial.",
+              "audience": "Beginner developers, students, and people trying to turn school or learning projects into credible portfolio work.",
+              "hypothesis": "A result-first beginner build story (goal → problem → rebuild → second problem → proof → result) will hold attention better than a step-by-step weather app tutorial.",
+              "notes": "Target 5:30–6:30. Show the finished app in the first 3–5 seconds. Keep the personal reason in the opening. Group the technical upgrades into one transformation rather than seven equal chapters. Keep a real mid-video tension point: cleaner architecture did not automatically solve network failures or waiting. Use code only as visual proof. Close on the finished app and the channel payoff: Project One is done. Track 24h views, 7d views, CTR, retention/average view duration, subscribers, and comments mentioning the story or specific technical sections. Upload the final Script and Production Plan to this idea as its creative source material.",
+              "priority": "High",
+              "status": "Ready",
+          }
+          st, created = api("/api/ideas", "POST", idea)
+          print("IDEA", st, json.dumps(created))
+          PY
