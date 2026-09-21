@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Iterable, Mapping, Sequence
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.pool import StaticPool
 
@@ -165,7 +165,7 @@ class DatabaseConnection:
         else:
             positional = tuple(params or ())
             sql, bindings = _bind_qmarks(statement, positional)
-        result = self.connection.exec_driver_sql(sql, bindings)
+        result = self.connection.execute(text(sql), bindings)
         return CompatResult(result, self.connection, self.dialect)
 
     def executescript(self, script: str) -> None:
@@ -180,13 +180,15 @@ class DatabaseConnection:
             rows = self.connection.exec_driver_sql(f"PRAGMA table_info({table})").fetchall()
             return {str(row[1]) for row in rows}
 
-        result = self.connection.exec_driver_sql(
-            """
-            SELECT column_name
-            FROM information_schema.columns
-            WHERE table_schema = current_schema()
-              AND table_name = %(table)s
-            """,
+        result = self.connection.execute(
+            text(
+                """
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema = current_schema()
+                  AND table_name = :table
+                """
+            ),
             {"table": table},
         )
         return {str(row[0]) for row in result.fetchall()}
