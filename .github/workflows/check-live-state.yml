@@ -1,0 +1,20 @@
+name: Check Christina Lab live state
+
+on:
+  push:
+    branches:
+      - ops/check-live-state-20260921
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Read live API state
+        run: |
+          python - <<'PY'
+          import json, urllib.request
+          base="https://christina-lab.onrender.com"
+          for path in ["/api/workflow","/api/research","/api/ideas","/api/health","/api/config/public"]:
+              with urllib.request.urlopen(base+path, timeout=60) as r:
+                  print(path, r.status, r.read().decode("utf-8"))
+          PY
