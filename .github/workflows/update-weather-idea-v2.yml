@@ -1,0 +1,39 @@
+name: Update Weather App idea V2
+
+on:
+  push:
+    branches:
+      - ops/update-weather-idea-v2-20260921
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Update persisted idea
+        run: |
+          python - <<'PY'
+          import json, urllib.request
+
+          payload = {
+              "title": "I Rebuilt My Student Weather App — and Finally Started My Coding Channel",
+              "hook": "I’ve been saying I want to start a coding channel for ages. So instead of planning it again, I went back to one of my old student projects and rebuilt it properly. This is Project One of From Code to Career.",
+              "topic": "Project One: rebuilding my student Python weather app for From Code to Career",
+              "contentType": "Long-form",
+              "angle": "A story-first build diary/case study: result first, personal reason, visible problem, one key architectural decision, a second reliability problem, proof through 161 tests, then the finished portfolio project. Technical details are evidence inside the story, not a tutorial.",
+              "audience": "Beginner developers, students, and people trying to turn school or learning projects into credible portfolio work.",
+              "hypothesis": "A result-first beginner build story (goal → problem → rebuild → second problem → proof → result) will hold attention better than a step-by-step weather app tutorial.",
+              "notes": "Target 5:30–6:30. Show the finished app in the first 3–5 seconds. Keep the personal reason in the opening. Group the technical upgrades into one transformation rather than seven equal chapters. Keep a real mid-video tension point: cleaner architecture did not automatically solve network failures or waiting. Use code only as visual proof. Close on the finished app and the channel payoff: Project One is done. Track 24h views, 7d views, CTR, retention/average view duration, subscribers, and comments mentioning the story or specific technical sections. Upload the final Script and Production Plan to this idea as its creative source material.",
+              "priority": "High",
+              "status": "Ready"
+          }
+
+          req = urllib.request.Request(
+              "https://christina-lab.onrender.com/api/ideas/1",
+              data=json.dumps(payload).encode("utf-8"),
+              method="PATCH",
+              headers={"Content-Type": "application/json"},
+          )
+          with urllib.request.urlopen(req, timeout=60) as response:
+              body = response.read().decode("utf-8")
+              print(response.status, body)
+          PY
