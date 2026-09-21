@@ -3,15 +3,17 @@ from __future__ import annotations
 import base64
 import binascii
 import os
+import secrets
 from pathlib import Path
 from urllib.parse import quote
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
+from .data_migration import export_database
 from .storage import SnapshotStore
 from .youtube import YouTubeAPIError, YouTubeClient
 
@@ -145,6 +147,24 @@ async def health() -> dict:
         "googleDocsConfigured": bool(os.getenv("GOOGLE_OAUTH_CLIENT_ID")),
         "snapshotStore": snapshot_store.stats(),
     }
+
+
+@app.get("/api/admin/migration-export")
+async def migration_export(
+    x_migration_token: str | None = Header(default=None),
+) -> dict:
+    """One-time, token-protected export used for SQLite -> PostgreSQL migration.
+
+    The endpoint is disabled unless MIGRATION_EXPORT_TOKEN is configured.
+    Keep the token only for the migration window, then remove it.
+    """
+    expected = os.getenv("MIGRATION_EXPORT_TOKEN", "").strip()
+    if not expected:
+        raise HTTPException(status_code=404, detail="Migration export is disabled.")
+    provided = (x_migration_token or "").strip()
+    if not provided or not secrets.compare_digest(provided, expected):
+        raise HTTPException(status_code=403, detail="Invalid migration token.")
+    return export_database(snapshot_store._connect)
 
 
 @app.get("/api/config/public")
