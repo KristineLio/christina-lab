@@ -68,21 +68,28 @@ class YouTubeClient:
         query: str,
         max_results: int = 25,
         published_after_days: int = 7,
+        mode: str = "trend",
     ) -> dict:
         now = datetime.now(timezone.utc)
-        published_after = now - timedelta(days=published_after_days)
+        normalized_mode = "reference" if mode == "reference" else "trend"
+
+        search_params = {
+            "part": "snippet",
+            "type": "video",
+            "q": query,
+            "maxResults": max_results,
+            # Trend discovery is about recency. Reference discovery is about
+            # finding useful precedents, so relevance is a better first pass.
+            "order": "relevance" if normalized_mode == "reference" else "date",
+        }
+        if published_after_days > 0:
+            published_after = now - timedelta(days=published_after_days)
+            search_params["publishedAfter"] = published_after.isoformat().replace("+00:00", "Z")
 
         async with httpx.AsyncClient(timeout=20.0) as client:
             search_payload = await self._get(
                 "search",
-                {
-                    "part": "snippet",
-                    "type": "video",
-                    "q": query,
-                    "maxResults": max_results,
-                    "order": "date",
-                    "publishedAfter": published_after.isoformat().replace("+00:00", "Z"),
-                },
+                search_params,
                 client=client,
             )
 
@@ -94,6 +101,7 @@ class YouTubeClient:
             if not video_ids:
                 return {
                     "query": query,
+                    "mode": normalized_mode,
                     "count": 0,
                     "videos": [],
                     "baselineMeta": self._baseline_meta(),
@@ -351,6 +359,7 @@ class YouTubeClient:
         )
         return {
             "query": query,
+            "mode": normalized_mode,
             "count": len(results),
             "videos": results,
             "baselineMeta": self._baseline_meta(),

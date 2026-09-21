@@ -37,8 +37,15 @@
   const state = {
     route: location.hash.slice(1) || "/",
     query: restoredLiveSession?.query || "",
+    discoverMode: restoredLiveSession?.discoverMode || "trend",
     searched: Boolean(restoredLiveSession?.searched && restoredLiveSession?.videos?.length),
-    filters: { time: "7d", type: "All", minViews: 0, sort: "opp", topic: "All" },
+    filters: {
+      time: restoredLiveSession?.time || (restoredLiveSession?.discoverMode === "reference" ? "any" : "7d"),
+      type: "All",
+      minViews: 0,
+      sort: "opp",
+      topic: "All",
+    },
     saved: new Set(),
     savedResearch: [],
     ideas: [],
@@ -72,6 +79,8 @@
         LIVE_SESSION_KEY,
         JSON.stringify({
           query: state.query,
+          discoverMode: state.discoverMode,
+          time: state.filters.time,
           searched: state.searched,
           videos: state.liveVideos,
         })
@@ -604,7 +613,14 @@
     const clean = String(query || "").trim();
     if (!clean) return;
 
-    const days = { "24h": 1, "3d": 3, "7d": 7, "30d": 30 }[state.filters.time] || 7;
+    const days = {
+      "24h": 1,
+      "3d": 3,
+      "7d": 7,
+      "30d": 30,
+      "1y": 365,
+      "any": 0,
+    }[state.filters.time] ?? (state.discoverMode === "reference" ? 0 : 7);
     state.query = clean;
     state.searched = true;
     state.loading = true;
@@ -618,6 +634,8 @@
         encodeURIComponent(clean) +
         "&published_after_days=" +
         days +
+        "&mode=" +
+        encodeURIComponent(state.discoverMode) +
         "&max_results=25";
       const response = await fetch(url);
       if (!response.ok) {
@@ -750,19 +768,35 @@
     const topics = ["All", ...new Set(topicSource.map((v) => v.topic).filter(Boolean))];
     const option = (value, label) =>
       `<option value="${value}" ${state.filters.time === value ? "selected" : ""}>${label}</option>`;
+    const referenceMode = state.discoverMode === "reference";
+    const timeOptions = referenceMode
+      ? [
+          ["30d", "Last 30 days"],
+          ["1y", "Last year"],
+          ["any", "Any time"],
+        ]
+      : [
+          ["24h", "Last 24 hours"],
+          ["3d", "3 days"],
+          ["7d", "7 days"],
+          ["30d", "30 days"],
+        ];
 
     return `
-      <p class="sub">Search real public YouTube data and compare velocity, engagement, and audience-normalized reach.</p>
+      <p class="sub">${referenceMode
+        ? "Find proven videos to study for format, title, hook, pacing, and positioning — without limiting yourself to this week's uploads."
+        : "Search real public YouTube data and compare velocity, engagement, and audience-normalized reach."}</p>
+      <div class="filters" style="margin-bottom:10px">
+        <button class="btn ${!referenceMode ? "primary" : "ghost"}" type="button" data-mode="trend">🔥 Trends</button>
+        <button class="btn ${referenceMode ? "primary" : "ghost"}" type="button" data-mode="reference">🔎 References</button>
+      </div>
       <form class="search-lg" id="ds">
-        <input name="q" value="${esc(state.query)}" placeholder="Search topics, keywords, or channels..." />
-        <button class="btn primary" type="submit">Search YouTube</button>
+        <input name="q" value="${esc(state.query)}" placeholder="${referenceMode ? "Describe the kind of video you want references for..." : "Search topics, keywords, or channels..."}" />
+        <button class="btn primary" type="submit">${referenceMode ? "Find References" : "Search YouTube"}</button>
       </form>
       <div class="filters">
         <select id="ftime">
-          ${option("24h", "Last 24 hours")}
-          ${option("3d", "3 days")}
-          ${option("7d", "7 days")}
-          ${option("30d", "30 days")}
+          ${timeOptions.map(([value, label]) => option(value, label)).join("")}
         </select>
         <select id="ftype">
           <option ${state.filters.type === "All" ? "selected" : ""}>All</option>
@@ -784,7 +818,9 @@
         <button class="btn ghost" id="resetF">Reset filters</button>
       </div>
       ${state.searched && !state.loading && !state.apiError
-        ? `<div class="meta" style="margin:-4px 0 12px">Live YouTube Data · Milestone 4 now stores real metric snapshots over time. Historical same-age baselines are used when enough observations exist; otherwise Christina Lab clearly falls back to a provisional velocity estimate.</div>`
+        ? `<div class="meta" style="margin:-4px 0 12px">${referenceMode
+            ? "Reference mode ranks a relevance-first YouTube search using Christina Lab's existing explainable metrics. Use it to study precedents, not just this week's trends."
+            : "Live YouTube Data · Historical same-age baselines are used when enough observations exist; otherwise Christina Lab clearly falls back to a provisional velocity estimate."}</div>`
         : ""}
       ${
         state.loading
@@ -793,14 +829,18 @@
           ? `<div class="empty"><h3>Couldn't load YouTube results</h3><p>${esc(state.apiError)}</p><button class="btn" id="retry">Retry</button></div>`
           : !state.searched
           ? `<div class="empty">
-              <h3>Find your next content opportunity.</h3>
-              <p>Search real YouTube data by topic, niche, keyword, or channel.</p>
-              <div class="chips">${["AI tools", "coding projects", "trading mistakes", "trading signals", "build in public", "creator growth"]
+              <h3>${referenceMode ? "Find videos worth studying." : "Find your next content opportunity."}</h3>
+              <p>${referenceMode
+                ? "Search by the format or story you want to make — you do not need an exact topic match."
+                : "Search real YouTube data by topic, niche, keyword, or channel."}</p>
+              <div class="chips">${(referenceMode
+                ? ["I built an app", "building an app from scratch", "coding project from scratch", "developer build vlog", "vibe coding an app", "build in public"]
+                : ["AI tools", "coding projects", "trading mistakes", "trading signals", "build in public", "creator growth"])
                 .map((s) => `<button class="chip" data-sug="${esc(s)}">${esc(s)}</button>`)
                 .join("")}</div>
             </div>`
           : list.length === 0
-          ? `<div class="empty"><h3>No YouTube videos found for this search.</h3><p>Try a broader keyword or longer time range.</p></div>`
+          ? `<div class="empty"><h3>No YouTube videos found for this search.</h3><p>${referenceMode ? "Try describing the format more broadly, for example “I built an app” or “coding project from scratch”." : "Try a broader keyword or longer time range."}</p></div>`
           : `<div class="card desk-only"><table class="table">
               <thead><tr><th></th><th>Video</th><th>Age</th><th>Views</th><th>24h run rate</th><th>V/sub</th><th>Eng</th><th>Outlier</th><th>Opp</th><th></th></tr></thead>
               <tbody>${list
@@ -1483,6 +1523,18 @@
     document.querySelectorAll("[data-sug]").forEach((b) => {
       b.onclick = () => runDiscoverSearch(b.dataset.sug);
     });
+    document.querySelectorAll("[data-mode]").forEach((b) => {
+      b.onclick = () => {
+        const nextMode = b.dataset.mode === "reference" ? "reference" : "trend";
+        if (nextMode === state.discoverMode) return;
+        state.discoverMode = nextMode;
+        state.filters.time = nextMode === "reference" ? "any" : "7d";
+        state.filters.sort = "opp";
+        state.apiError = "";
+        if (state.query) runDiscoverSearch(state.query);
+        else render();
+      };
+    });
     document.querySelectorAll("[data-view]").forEach((b) => {
       b.onclick = () => {
         state.savedView = b.dataset.view;
@@ -1504,7 +1556,13 @@
     const reset = document.getElementById("resetF");
     if (reset)
       reset.onclick = () => {
-        state.filters = { time: "7d", type: "All", minViews: 0, sort: "opp", topic: "All" };
+        state.filters = {
+          time: state.discoverMode === "reference" ? "any" : "7d",
+          type: "All",
+          minViews: 0,
+          sort: "opp",
+          topic: "All",
+        };
         state.query = "";
         state.searched = false;
         state.liveVideos = [];

@@ -130,7 +130,8 @@ async def health() -> dict:
 async def discover(
     q: str = Query(..., min_length=2, max_length=120),
     max_results: int = Query(25, ge=1, le=50),
-    published_after_days: int = Query(7, ge=1, le=30),
+    published_after_days: int = Query(7, ge=0, le=3650),
+    mode: str = Query("trend", pattern="^(trend|reference)$"),
 ) -> dict:
     api_key = os.getenv("YOUTUBE_API_KEY")
     if not api_key:
@@ -144,6 +145,7 @@ async def discover(
             query=q.strip(),
             max_results=max_results,
             published_after_days=published_after_days,
+            mode=mode,
         )
     except YouTubeAPIError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
