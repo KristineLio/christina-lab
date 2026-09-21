@@ -1,0 +1,25 @@
+name: Check Christina Lab postdeploy
+
+on:
+  push:
+    branches:
+      - ops/check-postdeploy-20260921
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check workflow and documents
+        run: |
+          python - <<'PY'
+          import urllib.request, urllib.error
+          for url in [
+              "https://christina-lab.onrender.com/api/workflow",
+              "https://christina-lab.onrender.com/api/ideas/1/documents",
+          ]:
+              try:
+                  with urllib.request.urlopen(url, timeout=60) as r:
+                      print(url, r.status, r.read().decode("utf-8"))
+              except urllib.error.HTTPError as e:
+                  print(url, e.code, e.read().decode("utf-8"))
+          PY
