@@ -56,7 +56,7 @@ class CompatResult:
         self._dialect = dialect
         self.rowcount = int(getattr(result, "rowcount", -1) or 0)
         self._keys = list(result.keys()) if getattr(result, "returns_rows", False) else []
-        self._native_lastrowid = getattr(result, "lastrowid", None)
+        self._native_lastrowid = getattr(result, "lastrowid", None) if dialect == "sqlite" else None
 
     def _wrap(self, row: Any | None) -> CompatRow | None:
         if row is None:
