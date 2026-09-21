@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import base64
+import binascii
 import os
+from pathlib import Path
+from urllib.parse import quote
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
 from .storage import SnapshotStore
@@ -75,6 +79,13 @@ class IdeaUpdate(BaseModel):
     status: str | None = Field(default=None, max_length=20)
 
 
+class IdeaDocumentUpload(BaseModel):
+    kind: str = Field(default="other", max_length=40)
+    filename: str = Field(min_length=1, max_length=240)
+    contentType: str = Field(default="application/octet-stream", max_length=160)
+    dataBase64: str = Field(min_length=1)
+
+
 class ExperimentCreate(BaseModel):
     ideaId: int = Field(ge=1)
     name: str | None = Field(default=None, max_length=240)
@@ -103,6 +114,9 @@ IDEA_STATUSES = {"Draft", "Ready", "Published"}
 EXPERIMENT_STATUSES = {"Draft", "Ready", "Published"}
 EXPERIMENT_DECISIONS = {"UNDECIDED", "GO", "TEST", "HOLD"}
 PRIORITIES = {"High", "Med", "Low"}
+IDEA_DOCUMENT_KINDS = {"script", "plan", "reference", "other"}
+IDEA_DOCUMENT_EXTENSIONS = {".docx", ".pdf", ".md", ".txt"}
+IDEA_DOCUMENT_MAX_BYTES = 5 * 1024 * 1024
 
 
 def _model_changes(model: BaseModel) -> dict:
@@ -254,6 +268,71 @@ async def update_idea(idea_id: int, payload: IdeaUpdate) -> dict:
     if item is None:
         raise HTTPException(status_code=404, detail="Idea not found.")
     return item
+
+
+@app.get("/api/ideas/{idea_id}/documents")
+async def idea_documents(idea_id: int) -> dict:
+    try:
+        items = snapshot_store.list_idea_documents(idea_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"count": len(items), "items": items}
+
+
+@app.post("/api/ideas/{idea_id}/documents", status_code=201)
+async def upload_idea_document(idea_id: int, payload: IdeaDocumentUpload) -> dict:
+    kind = payload.kind.strip().lower() or "other"
+    _validate_choice(kind, IDEA_DOCUMENT_KINDS, "Document kind")
+
+    filename = Path(payload.filename).name.strip()
+    extension = Path(filename).suffix.lower()
+    if not filename or extension not in IDEA_DOCUMENT_EXTENSIONS:
+        raise HTTPException(
+            status_code=422,
+            detail="Upload a .docx, .pdf, .md, or .txt file.",
+        )
+
+    try:
+        content = base64.b64decode(payload.dataBase64, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise HTTPException(status_code=422, detail="File payload is not valid base64.") from exc
+
+    if len(content) > IDEA_DOCUMENT_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="Idea documents are limited to 5 MB each.")
+
+    try:
+        return snapshot_store.save_idea_document(
+            idea_id,
+            kind=kind,
+            filename=filename,
+            content_type=payload.contentType or "application/octet-stream",
+            content=content,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/api/idea-documents/{document_id}")
+async def download_idea_document(document_id: int) -> Response:
+    item = snapshot_store.get_idea_document(document_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Document not found.")
+
+    safe_name = Path(item["filename"]).name
+    disposition = "attachment; filename*=UTF-8''" + quote(safe_name)
+    return Response(
+        content=item["content"],
+        media_type=item["contentType"] or "application/octet-stream",
+        headers={"Content-Disposition": disposition},
+    )
+
+
+@app.delete("/api/idea-documents/{document_id}")
+async def delete_idea_document(document_id: int) -> dict:
+    return {
+        "documentId": document_id,
+        "deleted": snapshot_store.delete_idea_document(document_id),
+    }
 
 
 @app.get("/api/experiments")

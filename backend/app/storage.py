@@ -281,6 +281,21 @@ class SnapshotStore:
                 CREATE INDEX IF NOT EXISTS idx_ideas_status
                 ON ideas(status, updated_at);
 
+                CREATE TABLE IF NOT EXISTS idea_documents (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    idea_id INTEGER NOT NULL,
+                    kind TEXT NOT NULL DEFAULT 'other',
+                    filename TEXT NOT NULL,
+                    content_type TEXT NOT NULL DEFAULT 'application/octet-stream',
+                    size_bytes INTEGER NOT NULL DEFAULT 0,
+                    content BLOB NOT NULL,
+                    uploaded_at TEXT NOT NULL,
+                    FOREIGN KEY(idea_id) REFERENCES ideas(id) ON DELETE CASCADE
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_idea_documents_idea
+                ON idea_documents(idea_id, uploaded_at);
+
                 CREATE TABLE IF NOT EXISTS experiments (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     idea_id INTEGER NOT NULL,
@@ -1150,6 +1165,7 @@ class SnapshotStore:
 
     @staticmethod
     def _serialize_idea(row: sqlite3.Row) -> dict:
+        keys = set(row.keys())
         return {
             "id": int(row["id"]),
             "sourceVideoId": row["source_video_id"],
@@ -1166,7 +1182,39 @@ class SnapshotStore:
             "createdAt": row["created_at"],
             "updatedAt": row["updated_at"],
             "sources": 1 if row["source_video_id"] else 0,
+            "documentCount": int(row["document_count"] or 0) if "document_count" in keys else 0,
         }
+
+    @staticmethod
+    def _serialize_idea_document(row: sqlite3.Row, *, include_content: bool = False) -> dict:
+        item = {
+            "id": int(row["id"]),
+            "ideaId": int(row["idea_id"]),
+            "kind": row["kind"],
+            "filename": row["filename"],
+            "contentType": row["content_type"],
+            "sizeBytes": int(row["size_bytes"] or 0),
+            "uploadedAt": row["uploaded_at"],
+        }
+        if include_content:
+            item["content"] = bytes(row["content"])
+        return item
+
+    def _idea_row(self, db: sqlite3.Connection, idea_id: int) -> sqlite3.Row | None:
+        return db.execute(
+            """
+            SELECT
+                i.*,
+                (
+                    SELECT COUNT(*)
+                    FROM idea_documents d
+                    WHERE d.idea_id = i.id
+                ) AS document_count
+            FROM ideas i
+            WHERE i.id = ?
+            """,
+            (idea_id,),
+        ).fetchone()
 
     def create_idea(
         self,
@@ -1221,19 +1269,29 @@ class SnapshotStore:
                     now,
                 ),
             )
-            row = db.execute("SELECT * FROM ideas WHERE id = ?", (cursor.lastrowid,)).fetchone()
+            row = self._idea_row(db, int(cursor.lastrowid))
             return self._serialize_idea(row)
 
     def list_ideas(self) -> list[dict]:
         with self._connect() as db:
             rows = db.execute(
-                "SELECT * FROM ideas ORDER BY updated_at DESC, id DESC"
+                """
+                SELECT
+                    i.*,
+                    (
+                        SELECT COUNT(*)
+                        FROM idea_documents d
+                        WHERE d.idea_id = i.id
+                    ) AS document_count
+                FROM ideas i
+                ORDER BY i.updated_at DESC, i.id DESC
+                """
             ).fetchall()
         return [self._serialize_idea(row) for row in rows]
 
     def get_idea(self, idea_id: int) -> dict | None:
         with self._connect() as db:
-            row = db.execute("SELECT * FROM ideas WHERE id = ?", (idea_id,)).fetchone()
+            row = self._idea_row(db, idea_id)
         return self._serialize_idea(row) if row else None
 
     def update_idea(self, idea_id: int, changes: dict) -> dict | None:
@@ -1270,8 +1328,76 @@ class SnapshotStore:
             )
             if cursor.rowcount == 0:
                 return None
-            row = db.execute("SELECT * FROM ideas WHERE id = ?", (idea_id,)).fetchone()
+            row = self._idea_row(db, idea_id)
             return self._serialize_idea(row)
+
+    def save_idea_document(
+        self,
+        idea_id: int,
+        *,
+        kind: str,
+        filename: str,
+        content_type: str,
+        content: bytes,
+    ) -> dict:
+        now = _iso(_utc_now())
+        payload = bytes(content)
+        with self._connect() as db:
+            if self._idea_row(db, idea_id) is None:
+                raise ValueError("Idea not found.")
+            cursor = db.execute(
+                """
+                INSERT INTO idea_documents (
+                    idea_id, kind, filename, content_type, size_bytes, content, uploaded_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    idea_id,
+                    kind,
+                    filename,
+                    content_type,
+                    len(payload),
+                    sqlite3.Binary(payload),
+                    now,
+                ),
+            )
+            row = db.execute(
+                "SELECT * FROM idea_documents WHERE id = ?",
+                (cursor.lastrowid,),
+            ).fetchone()
+            return self._serialize_idea_document(row)
+
+    def list_idea_documents(self, idea_id: int) -> list[dict]:
+        with self._connect() as db:
+            if self._idea_row(db, idea_id) is None:
+                raise ValueError("Idea not found.")
+            rows = db.execute(
+                """
+                SELECT id, idea_id, kind, filename, content_type, size_bytes, uploaded_at
+                FROM idea_documents
+                WHERE idea_id = ?
+                ORDER BY uploaded_at DESC, id DESC
+                """,
+                (idea_id,),
+            ).fetchall()
+        return [self._serialize_idea_document(row) for row in rows]
+
+    def get_idea_document(self, document_id: int) -> dict | None:
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT * FROM idea_documents WHERE id = ?",
+                (document_id,),
+            ).fetchone()
+        return self._serialize_idea_document(row, include_content=True) if row else None
+
+    def delete_idea_document(self, document_id: int) -> bool:
+        with self._connect() as db:
+            cursor = db.execute(
+                "DELETE FROM idea_documents WHERE id = ?",
+                (document_id,),
+            )
+            return cursor.rowcount > 0
 
     @staticmethod
     def _serialize_experiment(row: sqlite3.Row) -> dict:
