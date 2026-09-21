@@ -1,0 +1,317 @@
+name: Upload Weather App creative docs
+
+on:
+  push:
+    branches:
+      - ops/upload-weather-docs-20260921
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Build and upload the two DOCX files
+        shell: bash
+        run: |
+          python -m pip install --quiet python-docx
+          python - <<'PY'
+          import base64, json, urllib.request
+          from docx import Document
+          from docx.enum.text import WD_ALIGN_PARAGRAPH
+          from docx.shared import Inches, Pt
+
+          BASE = "https://christina-lab.onrender.com"
+          IDEA_ID = 1
+
+          def setup_doc(title, subtitle, meta_rows=None):
+              d = Document()
+              sec = d.sections[0]
+              sec.top_margin = Inches(0.65)
+              sec.bottom_margin = Inches(0.65)
+              sec.left_margin = Inches(0.7)
+              sec.right_margin = Inches(0.7)
+              p = d.add_paragraph()
+              p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+              r = p.add_run(title)
+              r.bold = True
+              r.font.size = Pt(18)
+              p = d.add_paragraph()
+              p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+              r = p.add_run(subtitle)
+              r.font.size = Pt(11)
+              if meta_rows:
+                  t = d.add_table(rows=1, cols=len(meta_rows))
+                  t.style = "Table Grid"
+                  for i, (k,v) in enumerate(meta_rows):
+                      cell = t.rows[0].cells[i]
+                      cell.text = f"{k}\n{v}"
+              return d
+
+          def h(doc, text, level=1):
+              doc.add_heading(text, level=level)
+
+          def p(doc, text, bold_prefix=None):
+              para = doc.add_paragraph()
+              if bold_prefix and text.startswith(bold_prefix):
+                  r = para.add_run(bold_prefix)
+                  r.bold = True
+                  para.add_run(text[len(bold_prefix):])
+              else:
+                  para.add_run(text)
+              return para
+
+          def tbl(doc, rows, widths=None):
+              table = doc.add_table(rows=1, cols=len(rows[0]))
+              table.style = "Table Grid"
+              hdr = table.rows[0].cells
+              for i, value in enumerate(rows[0]):
+                  hdr[i].text = value
+              for row in rows[1:]:
+                  cells = table.add_row().cells
+                  for i, value in enumerate(row):
+                      cells[i].text = value
+              return table
+
+          # SCRIPT
+          script = setup_doc(
+              "YOUTUBE PRODUCTION SCRIPT · WEATHER APP · V2",
+              "I Rebuilt My Student Weather App — and Finally Started My Coding Channel",
+              [("TARGET RUNTIME","5:30–6:30"),("SPOKEN WORDS","≈760–840"),("FORMAT","Faceless + voice")]
+          )
+          p(script, "Story-driven voice-over and visual direction built around the research reference: result first, personal reason, real problems, iteration, proof, and a clear payoff.")
+          p(script, "STORY RULE  Borrow the reference video’s structure, not its scale: show the result, explain why you cared, let the build hit a real problem, show the fix, then finish with proof and a lesson.")
+          h(script, "What changed after the reference research")
+          for x in [
+              "The video now starts with your personal reason for making it, then immediately proves there is a real finished project.",
+              "The seven technical upgrades are no longer presented as seven equal chapters. They sit inside a simpler story: starting point → rebuild → problems → proof → portfolio.",
+              "The script keeps one real tension point: cleaner architecture did not automatically make the app reliable or pleasant to use.",
+              "Technical details stay on screen as evidence. The narration explains decisions and consequences instead of teaching every line of code.",
+              "The ending makes the first upload itself part of the payoff: this is Project One of From Code to Career, not a claim that a weather app is revolutionary.",
+          ]:
+              script.add_paragraph(x, style="List Bullet")
+
+          sections = [
+              ("1. Hook — project one", "0:00–0:18",
+               [
+                 "I’ve been saying I want to start a coding channel for ages. So instead of planning it again, I went back to one of my old student projects and rebuilt it properly.",
+                 "This is the result: the same Python weather app, but with a cleaner architecture, caching, better error handling, SQLite storage—and 161 automated tests.",
+                 "This is Project One of From Code to Career."
+               ],
+               "ON SCREEN  0:00 final app hero shot → 0:04 old student version / old file → 0:08 clean folder tree → 0:12 terminal with “161 passed” → 0:16 simple Project One title card.",
+               "EDIT  Hard cuts every 2–4 seconds. Let the finished app appear before the old code. Do not explain the seven changes yet."),
+              ("2. Why I chose this project", "0:18–0:48",
+               [
+                 "The first version started as a university assignment. The goal was basically: make a wxPython app that works. And it did.",
+                 "But when I looked at it later, I realized I had exactly the kind of project that looks finished from the outside and becomes painful the moment you try to change it.",
+                 "I wanted my first video to be about something real I had already built—so this became the experiment: could I turn a student project into something I would actually be comfortable showing in a portfolio?"
+               ],
+               "ON SCREEN  University-era app → GitHub history / old structure → quick shot of your current channel/project notes. Keep personal information and local paths hidden.",
+               None),
+              ("3. The starting point", "0:48–1:30",
+               [
+                 "The problem was not wxPython. It was that the same files were doing almost everything: creating the interface, handling clicks, calling the weather API, parsing responses, and updating the screen.",
+                 "That feels fast when a project is small. But every new feature increases the chance that something unrelated breaks. And my testing strategy was basically clicking through the app and hoping I had not missed anything.",
+                 "So before adding more features, I stopped and fixed the part that was making every future change harder."
+               ],
+               "ON SCREEN  Scroll one representative old file. Overlay temporary labels: UI / events / API / parsing / display. End on a freeze-frame that visually feels crowded.",
+               "RETENTION  This is the first tension point. Do not linger on code; the viewer only needs to understand why the project was hard to change."),
+              ("4. The rebuild", "1:30–2:45",
+               [
+                 "The biggest change was separating responsibilities. I split the project into UI, domain, services, and utilities, so the interface no longer had to know how every part of the app worked.",
+                 "Then I replaced raw API dictionaries with dataclasses such as CurrentSnapshot and DailyForecast. The weather service converts external data once, and the rest of the app works with predictable Python objects.",
+                 "Finally, I moved networking out of the UI. Now the window asks WeatherService for data and decides how to display it. The service handles geocoding, requests, parsing, and model creation.",
+                 "None of these changes look dramatic in the final interface. But they changed what happened every time I touched the code: I could change one area without automatically being afraid of the rest."
+               ],
+               "ON SCREEN  Before/after folder tree → dictionary → dataclass → long UI handler → short WeatherService call. Use visual arrows instead of reading file names.",
+               "EDIT  Use a clean before/after rhythm. Each technical proof gets 4–7 seconds, then return to the app so the section never becomes a code walkthrough."),
+              ("5. Cleaner code was not enough", "2:45–3:45",
+               [
+                 "At this point the code was cleaner, but the app still did not feel finished.",
+                 "Real requests time out. People type cities that do not exist. And repeated searches could make you wait for data you had just seen a minute ago.",
+                 "So I added clearer errors, limited retries with backoff, and a cache-then-refresh flow. If recent data exists, the app can show it immediately while a background request asks Open-Meteo for a fresh result.",
+                 "That was an important lesson for me: refactoring the architecture made the next problems easier to solve, but it did not solve them for me."
+               ],
+               "ON SCREEN  Friendly city-not-found message → controlled network failure / retry → cached result appears → background refresh updates the UI.",
+               "PATTERN INTERRUPT  Use two large labels for the cache demo: FAST ANSWER → FRESH ANSWER. Let the real app behavior do most of the explaining."),
+              ("6. The proof: 161 tests", "3:45–4:40",
+               [
+                 "The biggest difference showed up when I started testing.",
+                 "Because the project had clear boundaries, I could test models, formatters, icon logic, services, caching, and storage without opening the GUI every time.",
+                 "I used fake network sessions for the API-dependent tests, and the suite grew to 161 passing tests across unit, integration, and smoke coverage.",
+                 "The number itself is not the point. The point is that I can now change the project and get fast feedback when important behavior breaks.",
+                 "This is where the first decision paid off: separating responsibilities made the testing strategy practical."
+               ],
+               "ON SCREEN  Start this section on “161 passed.” Then flash Unit / Integration / Smoke and open only one representative test from each.",
+               "EDIT  Hold the terminal proof for 2–3 seconds. Visually connect it back to the earlier folder refactor so the viewer gets a payoff, not a new disconnected feature."),
+              ("7. Turning it into a portfolio project", "4:40–5:25",
+               [
+                 "The final step was making the project understandable before someone opened a single Python file.",
+                 "I cleaned the repository, added pyproject.toml and installation requirements, documented the architecture and tests, added screenshots and a license, and made the README explain what the project is and how to run it.",
+                 "For a portfolio project, GitHub is part of the product. A reviewer should be able to understand the purpose, structure, and proof of quality without reverse-engineering the whole repository."
+               ],
+               "ON SCREEN  README hero → screenshots → installation → pyproject.toml → tests folder → final repo tree. Keep each shot moving.",
+               None),
+              ("8. Result — and why this is Project One", "5:25–6:05",
+               [
+                 "The weather app is not a revolutionary product. That is kind of the point.",
+                 "It started as a student assignment, and rebuilding it taught me more about structure, reliability, testing, and presenting software than adding another flashy feature would have.",
+                 "And more importantly, I finally stopped planning this channel and made the first video.",
+                 "Project One is done. If you want the next video to go deeper into one part of this rebuild—architecture, caching, or automated testing—tell me which one in the comments."
+               ],
+               "ON SCREEN  25–30 second polished final demo → before/after split → GitHub link → “PROJECT ONE: DONE” → end screen.",
+               None),
+          ]
+
+          for title, timing, narration, onscreen, edit in sections:
+              h(script, title)
+              p(script, timing)
+              p(script, "Narration")
+              for line in narration:
+                  p(script, line)
+              if onscreen: p(script, onscreen, "ON SCREEN")
+              if edit:
+                  prefix = edit.split("  ",1)[0] + "  "
+                  p(script, edit, prefix)
+
+          p(script, "FINAL NOTE  Keep the delivery conversational. The strongest contrast is not ‘bad student code vs perfect professional code’; it is ‘working first version vs a project that is safer to change and easier to understand.’")
+          script_path = "WeatherApp_YouTube_Script_v2_StoryDriven.docx"
+          script.save(script_path)
+
+          # PLAN
+          plan = setup_doc(
+              "YOUTUBE PRODUCTION BLUEPRINT · WEATHER APP · V2",
+              "Project One: Weather App",
+              [("TARGET LENGTH","5:30–6:30"),("FORMAT","Faceless + your voice"),("AUDIENCE","Beginner devs / students")]
+          )
+          p(plan, "A story-first production plan for From Code to Career, revised after studying a successful app-building reference video.")
+          p(plan, "RESEARCH TRANSLATION  Result first → personal reason → visible problem → key decision → new problem → iteration → proof → finished result → lesson. Technical details are evidence inside the story, not the story itself.")
+          h(plan, "1. Core story")
+          p(plan, "Primary working title: I Rebuilt My Student Weather App — and Finally Started My Coding Channel")
+          p(plan, "Viewer promise: See how a working student project became easier to change, more reliable, testable, and portfolio-ready—and why those changes mattered.")
+          p(plan, "Personal promise: This is not a tutorial pretending the weather app is groundbreaking. It is the first documented step in From Code to Career.")
+
+          h(plan, "2. Structure and pacing")
+          tbl(plan, [
+              ["Time","Beat","Story job","Visual proof"],
+              ["0:00–0:18","Hook","You finally start the channel by rebuilding something real.","Final app → old code → clean tree → 161 passed → Project One."],
+              ["0:18–0:48","Why this project","Connect the build to your real beginner/career journey.","Old student version + project history + channel note."],
+              ["0:48–1:30","Starting point","Make the pain visible: one working app, tangled responsibilities.","One large file + UI/API/parsing labels."],
+              ["1:30–2:45","Rebuild","One big decision: separate responsibilities; models and services follow from it.","Folder tree, dataclass, UI/service before-after."],
+              ["2:45–3:45","Second problem","Cleaner code still leaves network failures and waiting.","Error state, retry, cache-then-refresh."],
+              ["3:45–4:40","Proof","Testing becomes practical because the architecture is testable.","161 passed + Unit / Integration / Smoke."],
+              ["4:40–5:25","Portfolio finish","Make the project understandable to another developer or recruiter.","README, pyproject, screenshots, repo tree."],
+              ["5:25–6:05","Result + channel payoff","Finish the project and the first-video story at the same time.","Final demo + before/after + PROJECT ONE: DONE."],
+          ])
+
+          h(plan, "3. What changed from the old plan")
+          tbl(plan, [
+              ["Change","Why"],
+              ["Remove the 1/7–7/7 chapter feeling","The technical upgrades still appear, but they are grouped into a story. Viewers should remember the transformation, not a numbered feature list."],
+              ["Add your reason for filming","The first 30 seconds now explain why this is your first From Code to Career video."],
+              ["Create one real mid-video tension point","After the refactor, the app is cleaner but still has network/reliability problems. That prevents the video from feeling like a success montage."],
+              ["Shorten code explanations","Show code as proof. Narration focuses on why you made the decision and what changed afterward."],
+              ["Make the ending personal","The payoff is both the finished app and the fact that Project One is finally published."],
+          ])
+
+          h(plan, "4. Essential footage to capture")
+          tbl(plan, [
+              ["#","Shot","Capture","Story purpose"],
+              ["01","Final app hero","Search city, forecast, modes, favorites/settings.","Open and close the video on visible proof."],
+              ["02","Old student version","Old app plus one representative large/mixed file.","Make the starting problem tangible."],
+              ["03","Clean structure","ui / domain / services / utils / tests.","Show the main refactor without narrating file lists."],
+              ["04","Dictionary → dataclass","Raw provider response next to CurrentSnapshot/DailyForecast.","Prove data became predictable."],
+              ["05","UI → WeatherService","Long handler beside shorter service call.","Prove responsibilities moved."],
+              ["06","Failure + retry","Controlled bad city / network failure, message, retry/recovery.","Give the story a real obstacle."],
+              ["07","Cache-then-refresh","Cached result appears, then refreshed data updates.","Show user-facing benefit."],
+              ["08","161 tests","Full passing suite + one unit, integration, smoke example.","Strongest engineering proof."],
+              ["09","Portfolio repo","README, screenshots, pyproject, License, tree.","Show communication/presentation quality."],
+              ["10","Project One ending","Final demo + simple ‘PROJECT ONE: DONE’ frame.","Make the channel journey part of the payoff."],
+              ["11","Thumbnail stills","Old code, clean app/tree, pytest result captured separately.","Do not rely on blurry video frames."],
+          ])
+
+          h(plan, "5. Voice-over + edit rules")
+          for x in [
+              "Show the finished app in the first 3–5 seconds. The viewer should know what they are waiting to see.",
+              "Use your real voice and keep the language slightly informal. This is a build diary/case study, not a lecture.",
+              "Return to the actual app after every code-heavy proof so the video never turns into a static editor walkthrough.",
+              "Change the visual roughly every 3–6 seconds during the first minute; later sections can breathe slightly longer.",
+              "Keep one real problem in the middle. Do not edit the entire rebuild into a smooth success montage.",
+              "Do not explain every module, field, retry number, or test. Pick the smallest example that proves the point.",
+              "Keep captions accurate for wxPython, Open-Meteo, dataclass, pytest, SQLite, and cache-then-refresh.",
+          ]:
+              plan.add_paragraph(x, style="List Bullet")
+
+          h(plan, "6. Title + thumbnail direction")
+          p(plan, "Title options")
+          for x in [
+              "I Rebuilt My Student Weather App — and Finally Started My Coding Channel",
+              "I Turned My Old Python Weather App Into a Real Portfolio Project",
+              "From Student Project to Portfolio: Rebuilding My Python Weather App",
+          ]:
+              plan.add_paragraph(x, style="List Bullet")
+          p(plan, "THUMBNAIL  Before/after split. Left: cramped old code or old app. Right: clean Weather App + folder tree. Small proof badge: “161 TESTS”. Main text should be short: “STUDENT → PORTFOLIO” or “I REBUILT IT”.")
+          p(plan, "MOBILE TEST  Shrink the thumbnail to phone size. If the main story cannot be understood in one glance, remove an element instead of shrinking text.")
+
+          h(plan, "7. Christina Lab experiment setup")
+          tbl(plan, [
+              ["Field","Value"],
+              ["Idea","I Rebuilt My Student Weather App — and Finally Started My Coding Channel"],
+              ["Hypothesis","A result-first beginner build story (goal → problem → rebuild → second problem → proof → result) will hold attention better than a step-by-step weather app tutorial."],
+              ["Primary learning goal","Can a small, real coding project work as the first episode of From Code to Career when the story is about progression rather than project novelty?"],
+              ["Track after publish","24h views, 7d views, CTR, retention / average view duration, subscribers, comments mentioning the story or specific technical sections."],
+              ["Decision rule","GO if the story format holds attention and viewers ask for another build/deep dive. TEST if clicks are weak but retention is healthy, or vice versa. HOLD if both packaging and retention are weak."],
+          ])
+
+          h(plan, "8. Pre-publish checklist")
+          for x in [
+              "Remove API keys, emails, usernames, personal file paths, and location history from every recording.",
+              "Record the clean app demo and proof shots before voice-over so the narration can match the footage.",
+              "Verify the public repository has setup steps, screenshots, package requirements/pyproject, test instructions, and License.",
+              "Listen to the voice-over on headphones and laptop/phone speakers; fix noise and large volume jumps.",
+              "Watch the first 60 seconds without sound. The visual story should still make sense.",
+              "Watch the complete unlisted upload on mobile and desktop before publishing.",
+              "Upload the final Script and Production Plan to the Christina Lab idea so the experiment keeps its creative source material together.",
+          ]:
+              plan.add_paragraph("☐ " + x)
+
+          h(plan, "9. Ready-to-use upload package")
+          p(plan, "DESCRIPTION OPENER  I went back to an old wxPython weather app I built as a student and rebuilt the parts that made it hard to change: structure, data flow, reliability, testing, and documentation. This is Project One of From Code to Career—and the first time I’m turning my actual coding process into a video.")
+          p(plan, "CTA  Project One is done. If you want the next video to go deeper into architecture, caching, or automated testing, tell me which one in the comments.")
+          plan_path = "WeatherApp_YouTube_Production_Plan_v2.docx"
+          plan.save(plan_path)
+
+          def api(path, method="GET", payload=None):
+              data = None if payload is None else json.dumps(payload).encode("utf-8")
+              req = urllib.request.Request(
+                  BASE + path,
+                  data=data,
+                  method=method,
+                  headers={"Content-Type":"application/json"},
+              )
+              with urllib.request.urlopen(req, timeout=60) as resp:
+                  body = resp.read().decode("utf-8")
+                  return resp.status, json.loads(body) if body else {}
+
+          status, listing = api(f"/api/ideas/{IDEA_ID}/documents")
+          existing = {item["filename"]: item for item in listing.get("items", [])}
+
+          uploads = [
+              ("script", script_path),
+              ("plan", plan_path),
+          ]
+          for kind, path in uploads:
+              if path in existing:
+                  print("ALREADY_EXISTS", path, existing[path]["id"])
+                  continue
+              raw = open(path, "rb").read()
+              payload = {
+                  "kind": kind,
+                  "filename": path,
+                  "contentType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                  "dataBase64": base64.b64encode(raw).decode("ascii"),
+              }
+              st, result = api(f"/api/ideas/{IDEA_ID}/documents", "POST", payload)
+              print("UPLOADED", st, json.dumps(result))
+
+          st, final = api(f"/api/ideas/{IDEA_ID}/documents")
+          print("FINAL", st, json.dumps(final))
+          PY
