@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Iterable, Mapping, Sequence
+import os
+from typing import Any, Mapping, Sequence
+from urllib.parse import urlsplit, urlunsplit
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Connection, Engine
@@ -14,9 +16,16 @@ DEFAULT_DATABASE_URL = "sqlite:///./christina_lab.sqlite3"
 def normalize_database_url(database_url: str | None) -> str:
     value = (database_url or DEFAULT_DATABASE_URL).strip() or DEFAULT_DATABASE_URL
     if value.startswith("postgres://"):
-        return "postgresql+psycopg://" + value[len("postgres://"):]
-    if value.startswith("postgresql://") and not value.startswith("postgresql+psycopg://"):
-        return "postgresql+psycopg://" + value[len("postgresql://"):]
+        value = "postgresql+psycopg://" + value[len("postgres://"):]
+    elif value.startswith("postgresql://") and not value.startswith("postgresql+psycopg://"):
+        value = "postgresql+psycopg://" + value[len("postgresql://"):]
+
+    database_name = os.getenv("DATABASE_NAME_OVERRIDE", "").strip()
+    if database_name and value.startswith("postgresql+psycopg://"):
+        parsed = urlsplit(value)
+        value = urlunsplit(
+            (parsed.scheme, parsed.netloc, f"/{database_name}", parsed.query, parsed.fragment)
+        )
     return value
 
 
