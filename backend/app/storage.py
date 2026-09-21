@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import os
 import re
-import sqlite3
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from statistics import median
 from typing import Iterable
+
+from .database import CompatRow, DatabaseBackend, DatabaseConnection
+from .migrations import run_migrations
 
 
 DEFAULT_DATABASE_URL = "sqlite:///./christina_lab.sqlite3"
@@ -160,197 +161,21 @@ def _title_terms(title: str) -> set[str]:
 
 
 class SnapshotStore:
-    """SQLite persistence for YouTube observations and derived research signals."""
+    """Portable persistence for YouTube observations and creator workflow data."""
 
     def __init__(self, database_url: str | None = None) -> None:
         self.database_url = database_url or os.getenv("DATABASE_URL") or DEFAULT_DATABASE_URL
-        self.path = self._sqlite_path(self.database_url)
-        if self.path != ":memory:":
-            Path(self.path).parent.mkdir(parents=True, exist_ok=True)
+        self._backend = DatabaseBackend(self.database_url)
+        # Kept for backward compatibility with local tooling/tests that inspect
+        # the SQLite path. PostgreSQL-backed stores expose None here.
+        self.path = self._backend.sqlite_path
         self.init_schema()
 
-    @staticmethod
-    def _sqlite_path(database_url: str) -> str:
-        value = (database_url or DEFAULT_DATABASE_URL).strip()
-        if value == "sqlite:///:memory:":
-            return ":memory:"
-        prefix = "sqlite:///"
-        if not value.startswith(prefix):
-            raise ValueError("Christina Lab currently supports SQLite DATABASE_URL values only.")
-        path = value[len(prefix) :]
-        return path or "./christina_lab.sqlite3"
-
-    def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA foreign_keys = ON")
-        return connection
-
-    @staticmethod
-    def _columns(db: sqlite3.Connection, table: str) -> set[str]:
-        return {row["name"] for row in db.execute(f"PRAGMA table_info({table})").fetchall()}
+    def _connect(self) -> DatabaseConnection:
+        return self._backend.connect()
 
     def init_schema(self) -> None:
-        with self._connect() as db:
-            db.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS videos (
-                    video_id TEXT PRIMARY KEY,
-                    channel_id TEXT NOT NULL,
-                    title TEXT NOT NULL,
-                    published_at TEXT NOT NULL,
-                    content_type TEXT NOT NULL,
-                    live_status TEXT NOT NULL DEFAULT 'none',
-                    duration_seconds INTEGER NOT NULL DEFAULT 0,
-                    first_seen_at TEXT NOT NULL,
-                    last_seen_at TEXT NOT NULL
-                );
-
-                CREATE INDEX IF NOT EXISTS idx_videos_channel_type
-                ON videos(channel_id, content_type, published_at);
-
-                CREATE TABLE IF NOT EXISTS video_snapshots (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    video_id TEXT NOT NULL,
-                    observed_at TEXT NOT NULL,
-                    age_hours REAL NOT NULL,
-                    views INTEGER NOT NULL,
-                    likes INTEGER NOT NULL,
-                    comments INTEGER NOT NULL,
-                    subscribers INTEGER,
-                    FOREIGN KEY(video_id) REFERENCES videos(video_id) ON DELETE CASCADE
-                );
-
-                CREATE INDEX IF NOT EXISTS idx_snapshots_video_time
-                ON video_snapshots(video_id, observed_at);
-
-                CREATE INDEX IF NOT EXISTS idx_snapshots_video_age
-                ON video_snapshots(video_id, age_hours);
-
-                CREATE TABLE IF NOT EXISTS video_analyses (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    video_id TEXT NOT NULL,
-                    observed_at TEXT NOT NULL,
-                    topic TEXT NOT NULL DEFAULT '',
-                    opportunity INTEGER,
-                    outlier REAL,
-                    baseline INTEGER,
-                    baseline_method TEXT NOT NULL DEFAULT '',
-                    baseline_sample_size INTEGER NOT NULL DEFAULT 0,
-                    views_day REAL NOT NULL DEFAULT 0,
-                    engagement REAL NOT NULL DEFAULT 0,
-                    views_sub REAL,
-                    FOREIGN KEY(video_id) REFERENCES videos(video_id) ON DELETE CASCADE
-                );
-
-                CREATE INDEX IF NOT EXISTS idx_analyses_video_time
-                ON video_analyses(video_id, observed_at);
-
-                CREATE INDEX IF NOT EXISTS idx_analyses_topic
-                ON video_analyses(topic, observed_at);
-
-                CREATE TABLE IF NOT EXISTS saved_research (
-                    video_id TEXT PRIMARY KEY,
-                    saved_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    why_saved TEXT NOT NULL DEFAULT '',
-                    adaptation TEXT NOT NULL DEFAULT '',
-                    unique_angle TEXT NOT NULL DEFAULT '',
-                    collection_name TEXT NOT NULL DEFAULT 'General',
-                    FOREIGN KEY(video_id) REFERENCES videos(video_id) ON DELETE CASCADE
-                );
-
-                CREATE TABLE IF NOT EXISTS ideas (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    source_video_id TEXT,
-                    title TEXT NOT NULL,
-                    hook TEXT NOT NULL DEFAULT '',
-                    topic TEXT NOT NULL DEFAULT '',
-                    content_type TEXT NOT NULL DEFAULT 'Long-form',
-                    angle TEXT NOT NULL DEFAULT '',
-                    audience TEXT NOT NULL DEFAULT '',
-                    hypothesis TEXT NOT NULL DEFAULT '',
-                    notes TEXT NOT NULL DEFAULT '',
-                    priority TEXT NOT NULL DEFAULT 'Med',
-                    status TEXT NOT NULL DEFAULT 'Draft',
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    FOREIGN KEY(source_video_id) REFERENCES videos(video_id) ON DELETE SET NULL
-                );
-
-                CREATE INDEX IF NOT EXISTS idx_ideas_status
-                ON ideas(status, updated_at);
-
-                CREATE TABLE IF NOT EXISTS idea_documents (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    idea_id INTEGER NOT NULL,
-                    kind TEXT NOT NULL DEFAULT 'other',
-                    filename TEXT NOT NULL,
-                    content_type TEXT NOT NULL DEFAULT 'application/octet-stream',
-                    size_bytes INTEGER NOT NULL DEFAULT 0,
-                    content BLOB NOT NULL,
-                    uploaded_at TEXT NOT NULL,
-                    cloud_provider TEXT NOT NULL DEFAULT '',
-                    cloud_file_id TEXT NOT NULL DEFAULT '',
-                    cloud_url TEXT NOT NULL DEFAULT '',
-                    cloud_uploaded_at TEXT,
-                    FOREIGN KEY(idea_id) REFERENCES ideas(id) ON DELETE CASCADE
-                );
-
-                CREATE INDEX IF NOT EXISTS idx_idea_documents_idea
-                ON idea_documents(idea_id, uploaded_at);
-
-                CREATE TABLE IF NOT EXISTS experiments (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    idea_id INTEGER NOT NULL,
-                    name TEXT NOT NULL,
-                    topic TEXT NOT NULL DEFAULT '',
-                    format TEXT NOT NULL DEFAULT 'Long-form',
-                    hypothesis TEXT NOT NULL DEFAULT '',
-                    status TEXT NOT NULL DEFAULT 'Draft',
-                    published_at TEXT,
-                    views_24h INTEGER,
-                    views_7d INTEGER,
-                    retention REAL,
-                    subscribers INTEGER,
-                    ctr REAL,
-                    result TEXT NOT NULL DEFAULT '',
-                    decision TEXT NOT NULL DEFAULT 'UNDECIDED',
-                    lesson TEXT NOT NULL DEFAULT '',
-                    next_test TEXT NOT NULL DEFAULT '',
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    FOREIGN KEY(idea_id) REFERENCES ideas(id) ON DELETE CASCADE
-                );
-
-                CREATE INDEX IF NOT EXISTS idx_experiments_idea
-                ON experiments(idea_id, updated_at);
-
-                CREATE INDEX IF NOT EXISTS idx_experiments_decision
-                ON experiments(decision, updated_at);
-                """
-            )
-
-            # Lightweight migrations for databases created by Milestone 4.
-            video_columns = self._columns(db, "videos")
-            if "channel_title" not in video_columns:
-                db.execute("ALTER TABLE videos ADD COLUMN channel_title TEXT NOT NULL DEFAULT ''")
-            if "thumbnail" not in video_columns:
-                db.execute("ALTER TABLE videos ADD COLUMN thumbnail TEXT")
-            if "youtube_url" not in video_columns:
-                db.execute("ALTER TABLE videos ADD COLUMN youtube_url TEXT")
-
-            # Idea-document cloud metadata migration for databases created before
-            # the Google Docs export integration.
-            document_columns = self._columns(db, "idea_documents")
-            if "cloud_provider" not in document_columns:
-                db.execute("ALTER TABLE idea_documents ADD COLUMN cloud_provider TEXT NOT NULL DEFAULT ''")
-            if "cloud_file_id" not in document_columns:
-                db.execute("ALTER TABLE idea_documents ADD COLUMN cloud_file_id TEXT NOT NULL DEFAULT ''")
-            if "cloud_url" not in document_columns:
-                db.execute("ALTER TABLE idea_documents ADD COLUMN cloud_url TEXT NOT NULL DEFAULT ''")
-            if "cloud_uploaded_at" not in document_columns:
-                db.execute("ALTER TABLE idea_documents ADD COLUMN cloud_uploaded_at TEXT")
+        run_migrations(self._connect)
 
     def record_snapshots(
         self,
@@ -558,7 +383,7 @@ class SnapshotStore:
                 ),
             ).fetchall()
 
-        closest_by_video: dict[str, sqlite3.Row] = {}
+        closest_by_video: dict[str, CompatRow] = {}
         for row in rows:
             existing = closest_by_video.get(row["video_id"])
             if existing is None:
@@ -624,7 +449,7 @@ class SnapshotStore:
             for row in rows
         ]
 
-    def _latest_analysis_rows(self) -> list[sqlite3.Row]:
+    def _latest_analysis_rows(self) -> list[CompatRow]:
         with self._connect() as db:
             return db.execute(
                 """
@@ -1001,7 +826,7 @@ class SnapshotStore:
             },
         }
 
-    def _research_row(self, db: sqlite3.Connection, video_id: str) -> sqlite3.Row | None:
+    def _research_row(self, db: DatabaseConnection, video_id: str) -> CompatRow | None:
         return db.execute(
             """
             SELECT
@@ -1059,7 +884,7 @@ class SnapshotStore:
         ).fetchone()
 
     @staticmethod
-    def _serialize_research(row: sqlite3.Row) -> dict:
+    def _serialize_research(row: CompatRow) -> dict:
         return {
             "id": row["video_id"],
             "videoId": row["video_id"],
@@ -1180,7 +1005,7 @@ class SnapshotStore:
         return [self._serialize_research(row) for row in rows if row is not None]
 
     @staticmethod
-    def _serialize_idea(row: sqlite3.Row) -> dict:
+    def _serialize_idea(row: CompatRow) -> dict:
         keys = set(row.keys())
         return {
             "id": int(row["id"]),
@@ -1202,7 +1027,7 @@ class SnapshotStore:
         }
 
     @staticmethod
-    def _serialize_idea_document(row: sqlite3.Row, *, include_content: bool = False) -> dict:
+    def _serialize_idea_document(row: CompatRow, *, include_content: bool = False) -> dict:
         keys = set(row.keys())
         item = {
             "id": int(row["id"]),
@@ -1221,7 +1046,7 @@ class SnapshotStore:
             item["content"] = bytes(row["content"])
         return item
 
-    def _idea_row(self, db: sqlite3.Connection, idea_id: int) -> sqlite3.Row | None:
+    def _idea_row(self, db: DatabaseConnection, idea_id: int) -> CompatRow | None:
         return db.execute(
             """
             SELECT
@@ -1379,7 +1204,7 @@ class SnapshotStore:
                     filename,
                     content_type,
                     len(payload),
-                    sqlite3.Binary(payload),
+                    payload,
                     now,
                 ),
             )
@@ -1452,7 +1277,7 @@ class SnapshotStore:
             return cursor.rowcount > 0
 
     @staticmethod
-    def _serialize_experiment(row: sqlite3.Row) -> dict:
+    def _serialize_experiment(row: CompatRow) -> dict:
         return {
             "id": int(row["id"]),
             "ideaId": int(row["idea_id"]),
