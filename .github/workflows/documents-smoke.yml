@@ -1,0 +1,54 @@
+name: Smoke test Christina Lab idea documents
+
+on:
+  push:
+    branches:
+      - ops/documents-smoke-20260921
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Upload, list, download, delete
+        run: |
+          python - <<'PY'
+          import base64, json, urllib.request
+
+          base = "https://christina-lab.onrender.com"
+
+          def req(path, method="GET", payload=None):
+              data = None if payload is None else json.dumps(payload).encode()
+              r = urllib.request.Request(
+                  base + path,
+                  data=data,
+                  method=method,
+                  headers={"Content-Type": "application/json"},
+              )
+              with urllib.request.urlopen(r, timeout=60) as resp:
+                  body = resp.read()
+                  return resp.status, body, resp.headers
+
+          status, body, _ = req("/api/ideas/1/documents")
+          print("LIST_BEFORE", status, body.decode())
+
+          payload = {
+              "kind": "other",
+              "filename": "smoke-test.txt",
+              "contentType": "text/plain",
+              "dataBase64": base64.b64encode(b"Christina Lab document smoke test").decode(),
+          }
+          status, body, _ = req("/api/ideas/1/documents", "POST", payload)
+          created = json.loads(body.decode())
+          print("CREATE", status, json.dumps(created))
+
+          doc_id = created["id"]
+          status, body, headers = req(f"/api/idea-documents/{doc_id}")
+          assert body == b"Christina Lab document smoke test"
+          print("DOWNLOAD", status, headers.get("Content-Type"), len(body))
+
+          status, body, _ = req(f"/api/idea-documents/{doc_id}", "DELETE")
+          print("DELETE", status, body.decode())
+
+          status, body, _ = req("/api/ideas/1/documents")
+          print("LIST_AFTER", status, body.decode())
+          PY
