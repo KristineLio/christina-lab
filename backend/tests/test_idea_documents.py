@@ -40,3 +40,32 @@ def test_idea_documents_round_trip(tmp_path):
     assert store.delete_idea_document(saved["id"]) is True
     assert store.list_idea_documents(idea["id"]) == []
     assert store.get_idea_document(saved["id"]) is None
+
+
+def test_idea_document_cloud_metadata(tmp_path):
+    db = tmp_path / "christina_lab.sqlite3"
+    store = SnapshotStore(f"sqlite:///{db}")
+    idea = store.create_idea(title="Cloud export")
+    doc = store.save_idea_document(
+        idea["id"],
+        kind="script",
+        filename="script.docx",
+        content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        content=b"docx",
+    )
+
+    updated = store.update_idea_document_cloud(
+        doc["id"],
+        provider="google_docs",
+        file_id="google-file-123",
+        url="https://docs.google.com/document/d/google-file-123/edit",
+    )
+    assert updated is not None
+    assert updated["cloudProvider"] == "google_docs"
+    assert updated["cloudFileId"] == "google-file-123"
+    assert updated["cloudUrl"].endswith("/edit")
+    assert updated["cloudUploadedAt"]
+
+    listed = store.list_idea_documents(idea["id"])
+    assert listed[0]["cloudProvider"] == "google_docs"
+    assert listed[0]["cloudFileId"] == "google-file-123"

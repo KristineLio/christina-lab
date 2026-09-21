@@ -71,6 +71,12 @@
     patternsData: null,
     patternsLoading: false,
     patternsError: "",
+    publicConfigLoaded: false,
+    publicConfigError: "",
+    googleOAuthClientId: "",
+    googleDriveScope: "https://www.googleapis.com/auth/drive.file",
+    googleAccessToken: "",
+    googleTokenExpiresAt: 0,
   };
 
   function writeLiveSession() {
@@ -194,6 +200,130 @@
 
   async function fetchJson(path) {
     return apiJson(path);
+  }
+
+  async function loadPublicConfig(force = false) {
+    if (state.publicConfigLoaded && !force) return;
+    state.publicConfigError = "";
+    try {
+      const payload = await fetchJson("/api/config/public");
+      state.googleOAuthClientId = String(payload.googleOAuthClientId || "").trim();
+      state.googleDriveScope = String(payload.googleDriveScope || "https://www.googleapis.com/auth/drive.file");
+      state.publicConfigLoaded = true;
+    } catch (error) {
+      state.publicConfigError = error?.message || "Could not load cloud integration settings.";
+    }
+  }
+
+  function googleDocsConfigured() {
+    return Boolean(state.googleOAuthClientId);
+  }
+
+  async function ensureGoogleAccessToken() {
+    await loadPublicConfig();
+    if (!state.googleOAuthClientId) {
+      throw new Error("Google Docs is not configured yet. Add GOOGLE_OAUTH_CLIENT_ID to Christina Lab first.");
+    }
+
+    const now = Date.now();
+    if (state.googleAccessToken && state.googleTokenExpiresAt > now + 60_000) {
+      return state.googleAccessToken;
+    }
+
+    if (!window.google?.accounts?.oauth2) {
+      throw new Error("Google sign-in is still loading. Wait a moment and try again.");
+    }
+
+    return new Promise((resolve, reject) => {
+      const client = window.google.accounts.oauth2.initTokenClient({
+        client_id: state.googleOAuthClientId,
+        scope: state.googleDriveScope,
+        callback: (response) => {
+          if (response?.error) {
+            reject(new Error(response.error_description || response.error));
+            return;
+          }
+          state.googleAccessToken = response.access_token || "";
+          const expiresIn = Number(response.expires_in || 3600);
+          state.googleTokenExpiresAt = Date.now() + Math.max(expiresIn - 60, 60) * 1000;
+          if (!state.googleAccessToken) {
+            reject(new Error("Google did not return an access token."));
+            return;
+          }
+          resolve(state.googleAccessToken);
+        },
+      });
+      client.requestAccessToken({ prompt: "consent" });
+    });
+  }
+
+  function googleDocName(filename) {
+    return String(filename || "Christina Lab document")
+      .replace(/\.(docx|txt|md)$/i, "")
+      .trim() || "Christina Lab document";
+  }
+
+  function canConvertToGoogleDocs(doc) {
+    return /\.(docx|txt|md)$/i.test(String(doc?.filename || ""));
+  }
+
+  async function uploadDocumentToGoogleDocs(idea, doc) {
+    if (!canConvertToGoogleDocs(doc)) {
+      throw new Error("Google Docs conversion currently supports DOCX, TXT, and Markdown files.");
+    }
+
+    const token = await ensureGoogleAccessToken();
+    const sourceResponse = await fetch(API_BASE + "/api/idea-documents/" + encodeURIComponent(doc.id));
+    if (!sourceResponse.ok) {
+      throw new Error("Could not read the Christina Lab document.");
+    }
+    const sourceBlob = await sourceResponse.blob();
+
+    const boundary = "christina_lab_" + Math.random().toString(36).slice(2);
+    const metadata = {
+      name: googleDocName(doc.filename),
+      mimeType: "application/vnd.google-apps.document",
+      description: "Exported from Christina Lab · " + String(idea.title || "Creator idea"),
+    };
+    const multipart = new Blob(
+      [
+        "--" + boundary + "\r\n",
+        "Content-Type: application/json; charset=UTF-8\r\n\r\n",
+        JSON.stringify(metadata),
+        "\r\n--" + boundary + "\r\n",
+        "Content-Type: " + (doc.contentType || "application/octet-stream") + "\r\n\r\n",
+        sourceBlob,
+        "\r\n--" + boundary + "--",
+      ],
+      { type: "multipart/related; boundary=" + boundary }
+    );
+
+    const response = await fetch(
+      "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,mimeType,webViewLink",
+      {
+        method: "POST",
+        headers: { Authorization: "Bearer " + token },
+        body: multipart,
+      }
+    );
+
+    let payload = {};
+    try { payload = await response.json(); } catch (_) {}
+    if (!response.ok) {
+      const message = payload?.error?.message || "Google Drive could not create the Google Doc.";
+      throw new Error(message);
+    }
+
+    const webUrl = payload.webViewLink || ("https://docs.google.com/document/d/" + payload.id + "/edit");
+    await apiJson("/api/idea-documents/" + encodeURIComponent(doc.id) + "/cloud", {
+      method: "PATCH",
+      body: {
+        provider: "google_docs",
+        fileId: payload.id,
+        url: webUrl,
+      },
+    });
+    return { ...payload, webViewLink: webUrl };
   }
 
   function workflowRoute(path = state.route) {
@@ -521,9 +651,13 @@
           ? documents.map((doc) => `<div class="rank">
               <span><b>${esc(doc.filename)}</b><div class="meta">${esc(kinds[doc.kind] || doc.kind || "Other")} · ${formatBytes(doc.sizeBytes)}</div></span>
               <span></span>
-              <span class="meta">${esc(String(doc.uploadedAt || "").replace("T", " ").replace("Z", " UTC"))}</span>
+              <span class="meta">${esc(String(doc.uploadedAt || "").replace("T", " ").replace("Z", " UTC"))}${doc.cloudUploadedAt ? "<br>Google Docs synced" : ""}</span>
               <span class="actions">
                 <a class="btn" href="${API_BASE}/api/idea-documents/${doc.id}">Download</a>
+                ${canConvertToGoogleDocs(doc)
+                  ? `<button class="btn" type="button" data-google-doc="${doc.id}">${doc.cloudUrl ? "Upload new Google Doc" : "Upload to Google Docs"}</button>`
+                  : ""}
+                ${doc.cloudUrl ? `<a class="btn primary" href="${esc(doc.cloudUrl)}" target="_blank" rel="noopener">Open Google Doc</a>` : ""}
                 <button class="btn ghost" type="button" data-delete-doc="${doc.id}">Delete</button>
               </span>
             </div>`).join("")
@@ -573,6 +707,27 @@
         if (submit) submit.disabled = false;
       }
     };
+
+    document.querySelectorAll("[data-google-doc]").forEach((button) => {
+      button.onclick = async () => {
+        const doc = documents.find((item) => String(item.id) === String(button.dataset.googleDoc));
+        if (!doc) return;
+        button.disabled = true;
+        button.textContent = "Connecting…";
+        try {
+          await uploadDocumentToGoogleDocs(idea, doc);
+          const payload = await fetchJson("/api/ideas/" + encodeURIComponent(idea.id) + "/documents");
+          const items = Array.isArray(payload.items) ? payload.items : [];
+          idea.documentCount = items.length;
+          toast("Uploaded to Google Docs");
+          renderIdeaDocumentsModal(idea, items);
+        } catch (error) {
+          toast(error?.message || "Could not upload to Google Docs");
+          button.disabled = false;
+          button.textContent = doc.cloudUrl ? "Upload new Google Doc" : "Upload to Google Docs";
+        }
+      };
+    });
 
     document.querySelectorAll("[data-delete-doc]").forEach((button) => {
       button.onclick = async () => {
@@ -1588,6 +1743,14 @@
         <p>Connect your own channel to automatically import experiment performance.</p>
         <button class="btn" id="yt2">Connect</button>
       </div>
+      <div class="card" style="padding:14px;margin-bottom:12px">
+        <h2 style="font-size:14px">Google Docs cloud upload</h2>
+        <p class="meta">Status: ${googleDocsConfigured() ? "Configured · connect when you upload" : "Needs OAuth client ID"}</p>
+        <p>Convert idea DOCX/TXT/Markdown attachments into editable Google Docs in your own Drive. Christina Lab requests only the <code>drive.file</code> scope, so it can access files it creates rather than your whole Drive.</p>
+        ${googleDocsConfigured()
+          ? `<button class="btn primary" id="googleConnect">Connect Google Drive</button>`
+          : `<p class="meta">One-time setup: add <code>GOOGLE_OAUTH_CLIENT_ID</code> on Render and authorize <code>https://christina-lab.onrender.com</code> as a JavaScript origin.</p>`}
+      </div>
       <div class="card" style="padding:14px">
         <h2 style="font-size:14px">Research preferences</h2>
         <form class="form" id="prefs">
@@ -1825,6 +1988,15 @@
       render();
     });
     document.getElementById("yt2")?.addEventListener("click", () => toast("Creator Analytics stays a placeholder in this demo"));
+    document.getElementById("googleConnect")?.addEventListener("click", async () => {
+      try {
+        await ensureGoogleAccessToken();
+        toast("Google Drive connected for this session");
+        render();
+      } catch (error) {
+        toast(error?.message || "Could not connect Google Drive");
+      }
+    });
     document.getElementById("prefs")?.addEventListener("submit", (e) => {
       e.preventDefault();
       state.niches = new FormData(e.target).get("n");
@@ -1876,5 +2048,8 @@
   }
 
   render();
+  loadPublicConfig().then(() => {
+    if ((state.route.split("?")[0] || "/") === "/settings") render();
+  });
   loadRouteData(state.route);
 })();
