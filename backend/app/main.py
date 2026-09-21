@@ -86,6 +86,12 @@ class IdeaDocumentUpload(BaseModel):
     dataBase64: str = Field(min_length=1)
 
 
+class IdeaDocumentCloudUpdate(BaseModel):
+    provider: str = Field(min_length=1, max_length=40)
+    fileId: str = Field(min_length=1, max_length=240)
+    url: str = Field(min_length=1, max_length=1000)
+
+
 class ExperimentCreate(BaseModel):
     ideaId: int = Field(ge=1)
     name: str | None = Field(default=None, max_length=240)
@@ -136,7 +142,18 @@ async def health() -> dict:
     return {
         "status": "ok",
         "youtubeConfigured": bool(os.getenv("YOUTUBE_API_KEY")),
+        "googleDocsConfigured": bool(os.getenv("GOOGLE_OAUTH_CLIENT_ID")),
         "snapshotStore": snapshot_store.stats(),
+    }
+
+
+@app.get("/api/config/public")
+async def public_config() -> dict:
+    # OAuth client IDs are public identifiers. Secrets/tokens never belong in
+    # this endpoint or in the browser bundle.
+    return {
+        "googleOAuthClientId": os.getenv("GOOGLE_OAUTH_CLIENT_ID", "").strip(),
+        "googleDriveScope": "https://www.googleapis.com/auth/drive.file",
     }
 
 
@@ -325,6 +342,22 @@ async def download_idea_document(document_id: int) -> Response:
         media_type=item["contentType"] or "application/octet-stream",
         headers={"Content-Disposition": disposition},
     )
+
+
+@app.patch("/api/idea-documents/{document_id}/cloud")
+async def update_idea_document_cloud(document_id: int, payload: IdeaDocumentCloudUpdate) -> dict:
+    provider = payload.provider.strip().lower()
+    if provider != "google_docs":
+        raise HTTPException(status_code=422, detail="Unsupported cloud provider.")
+    item = snapshot_store.update_idea_document_cloud(
+        document_id,
+        provider=provider,
+        file_id=payload.fileId.strip(),
+        url=payload.url.strip(),
+    )
+    if item is None:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    return item
 
 
 @app.delete("/api/idea-documents/{document_id}")
