@@ -290,6 +290,10 @@ class SnapshotStore:
                     size_bytes INTEGER NOT NULL DEFAULT 0,
                     content BLOB NOT NULL,
                     uploaded_at TEXT NOT NULL,
+                    cloud_provider TEXT NOT NULL DEFAULT '',
+                    cloud_file_id TEXT NOT NULL DEFAULT '',
+                    cloud_url TEXT NOT NULL DEFAULT '',
+                    cloud_uploaded_at TEXT,
                     FOREIGN KEY(idea_id) REFERENCES ideas(id) ON DELETE CASCADE
                 );
 
@@ -335,6 +339,18 @@ class SnapshotStore:
                 db.execute("ALTER TABLE videos ADD COLUMN thumbnail TEXT")
             if "youtube_url" not in video_columns:
                 db.execute("ALTER TABLE videos ADD COLUMN youtube_url TEXT")
+
+            # Idea-document cloud metadata migration for databases created before
+            # the Google Docs export integration.
+            document_columns = self._columns(db, "idea_documents")
+            if "cloud_provider" not in document_columns:
+                db.execute("ALTER TABLE idea_documents ADD COLUMN cloud_provider TEXT NOT NULL DEFAULT ''")
+            if "cloud_file_id" not in document_columns:
+                db.execute("ALTER TABLE idea_documents ADD COLUMN cloud_file_id TEXT NOT NULL DEFAULT ''")
+            if "cloud_url" not in document_columns:
+                db.execute("ALTER TABLE idea_documents ADD COLUMN cloud_url TEXT NOT NULL DEFAULT ''")
+            if "cloud_uploaded_at" not in document_columns:
+                db.execute("ALTER TABLE idea_documents ADD COLUMN cloud_uploaded_at TEXT")
 
     def record_snapshots(
         self,
@@ -1187,6 +1203,7 @@ class SnapshotStore:
 
     @staticmethod
     def _serialize_idea_document(row: sqlite3.Row, *, include_content: bool = False) -> dict:
+        keys = set(row.keys())
         item = {
             "id": int(row["id"]),
             "ideaId": int(row["idea_id"]),
@@ -1195,6 +1212,10 @@ class SnapshotStore:
             "contentType": row["content_type"],
             "sizeBytes": int(row["size_bytes"] or 0),
             "uploadedAt": row["uploaded_at"],
+            "cloudProvider": row["cloud_provider"] if "cloud_provider" in keys else "",
+            "cloudFileId": row["cloud_file_id"] if "cloud_file_id" in keys else "",
+            "cloudUrl": row["cloud_url"] if "cloud_url" in keys else "",
+            "cloudUploadedAt": row["cloud_uploaded_at"] if "cloud_uploaded_at" in keys else None,
         }
         if include_content:
             item["content"] = bytes(row["content"])
@@ -1374,7 +1395,9 @@ class SnapshotStore:
                 raise ValueError("Idea not found.")
             rows = db.execute(
                 """
-                SELECT id, idea_id, kind, filename, content_type, size_bytes, uploaded_at
+                SELECT
+                    id, idea_id, kind, filename, content_type, size_bytes, uploaded_at,
+                    cloud_provider, cloud_file_id, cloud_url, cloud_uploaded_at
                 FROM idea_documents
                 WHERE idea_id = ?
                 ORDER BY uploaded_at DESC, id DESC
@@ -1390,6 +1413,35 @@ class SnapshotStore:
                 (document_id,),
             ).fetchone()
         return self._serialize_idea_document(row, include_content=True) if row else None
+
+    def update_idea_document_cloud(
+        self,
+        document_id: int,
+        *,
+        provider: str,
+        file_id: str,
+        url: str,
+    ) -> dict | None:
+        uploaded_at = _iso(_utc_now())
+        with self._connect() as db:
+            cursor = db.execute(
+                """
+                UPDATE idea_documents
+                SET cloud_provider = ?,
+                    cloud_file_id = ?,
+                    cloud_url = ?,
+                    cloud_uploaded_at = ?
+                WHERE id = ?
+                """,
+                (provider, file_id, url, uploaded_at, document_id),
+            )
+            if cursor.rowcount == 0:
+                return None
+            row = db.execute(
+                "SELECT * FROM idea_documents WHERE id = ?",
+                (document_id,),
+            ).fetchone()
+            return self._serialize_idea_document(row)
 
     def delete_idea_document(self, document_id: int) -> bool:
         with self._connect() as db:
