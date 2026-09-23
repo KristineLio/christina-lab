@@ -77,6 +77,8 @@
     googleDriveScope: "https://www.googleapis.com/auth/drive.file",
     googleAccessToken: "",
     googleTokenExpiresAt: 0,
+    creatorAgentConfigured: false,
+    creatorAgentModel: "",
   };
 
   function writeLiveSession() {
@@ -209,6 +211,8 @@
       const payload = await fetchJson("/api/config/public");
       state.googleOAuthClientId = String(payload.googleOAuthClientId || "").trim();
       state.googleDriveScope = String(payload.googleDriveScope || "https://www.googleapis.com/auth/drive.file");
+      state.creatorAgentConfigured = Boolean(payload.creatorAgentConfigured);
+      state.creatorAgentModel = String(payload.creatorAgentModel || "").trim();
       state.publicConfigLoaded = true;
     } catch (error) {
       state.publicConfigError = error?.message || "Could not load cloud integration settings.";
@@ -332,6 +336,7 @@
       clean === "/discover" ||
       clean === "/saved" ||
       clean === "/ideas" ||
+      clean === "/agent" ||
       clean === "/lab" ||
       clean === "/videos" ||
       clean.startsWith("/experiment/") ||
@@ -438,6 +443,7 @@
     const hits = [
       ["Discover videos", "/discover"],
       ["Create idea", "/ideas"],
+      ["Open Creator Agent", "/agent"],
       ["Open saved research", "/saved"],
       ["Open experiments", "/lab"],
       ["Dashboard", "/"],
@@ -618,7 +624,7 @@
     const m = $("modal");
     const kinds = {
       script: "Script",
-      plan: "Plan / PRD",
+      plan: "Production Blueprint / PRD",
       reference: "Reference",
       other: "Other",
     };
@@ -630,7 +636,7 @@
         <label>Document type
           <select name="kind">
             <option value="script">Script</option>
-            <option value="plan">Plan / PRD</option>
+            <option value="plan">Production Blueprint / PRD</option>
             <option value="reference">Reference</option>
             <option value="other">Other</option>
           </select>
@@ -832,6 +838,7 @@
     ["Saved Research", "/saved", "bookmark"],
     ["Watchlists", "/watchlists", "eye"],
     ["Create", null],
+    ["Creator Agent", "/agent", "spark"],
     ["Ideas", "/ideas", "light"],
     ["Lab", null],
     ["Experiments", "/lab", "flask"],
@@ -1430,6 +1437,16 @@
     `;
   }
 
+  function creatorAgent() {
+    if (!window.CL_CREATOR_AGENT) {
+      return '<div class="empty"><h3>Creator Agent UI failed to load.</h3><p>Refresh the page and try again.</p></div>';
+    }
+    return window.CL_CREATOR_AGENT.render({
+      configured: state.creatorAgentConfigured,
+      model: state.creatorAgentModel,
+    });
+  }
+
   function ideas() {
     const gate = workflowGate();
     if (gate) return gate;
@@ -1751,6 +1768,14 @@
           ? `<button class="btn primary" id="googleConnect">Connect Google Drive</button>`
           : `<p class="meta">One-time setup: add <code>GOOGLE_OAUTH_CLIENT_ID</code> on Render and authorize <code>https://christina-lab.onrender.com</code> as a JavaScript origin.</p>`}
       </div>
+      <div class="card" style="padding:14px;margin-bottom:12px">
+        <h2 style="font-size:14px">Creator Agent</h2>
+        <p class="meta">Status: ${state.creatorAgentConfigured ? "Configured · " + esc(state.creatorAgentModel || "model ready") : "Not configured"}</p>
+        <p>Researches reference videos and optional public GitHub project context, proposes three angles, then creates the research brief, script, and production blueprint after you choose.</p>
+        ${state.creatorAgentConfigured
+          ? '<button class="btn primary" data-go="/agent">Open Creator Agent</button>'
+          : '<p class="meta">Add <code>OPENAI_API_KEY</code> to the Render environment. <code>OPENAI_MODEL</code> is optional.</p>'}
+      </div>
       <div class="card" style="padding:14px">
         <h2 style="font-size:14px">Research preferences</h2>
         <form class="form" id="prefs">
@@ -1779,6 +1804,9 @@
     } else if (path === "/saved") {
       title = "Saved Research";
       body = saved();
+    } else if (path === "/agent") {
+      title = "Creator Agent";
+      body = creatorAgent();
     } else if (path === "/ideas") {
       title = "Ideas";
       body = ideas();
@@ -1899,6 +1927,17 @@
         else if (state.searched) render();
       };
     });
+    if ((state.route.split("?")[0] || "/") === "/agent" && window.CL_CREATOR_AGENT) {
+      window.CL_CREATOR_AGENT.bind({
+        apiBase: API_BASE,
+        rerender: render,
+        toast,
+        refreshWorkflow: async () => {
+          state.workflowLoaded = false;
+          await loadWorkflowData(true);
+        },
+      });
+    }
     document.getElementById("newIdea")?.addEventListener("click", () => openIdeaModal(null));
     document.getElementById("newExperiment")?.addEventListener("click", () => openExperimentModal(null));
     document.querySelectorAll("[data-docs]").forEach((button) => {
