@@ -78,7 +78,9 @@
     googleAccessToken: "",
     googleTokenExpiresAt: 0,
     creatorAgentConfigured: false,
+    creatorAgentProvider: "gemini",
     creatorAgentModel: "",
+    creatorAgentProviders: null,
   };
 
   function writeLiveSession() {
@@ -212,7 +214,9 @@
       state.googleOAuthClientId = String(payload.googleOAuthClientId || "").trim();
       state.googleDriveScope = String(payload.googleDriveScope || "https://www.googleapis.com/auth/drive.file");
       state.creatorAgentConfigured = Boolean(payload.creatorAgentConfigured);
+      state.creatorAgentProvider = String(payload.creatorAgentProvider || "gemini").trim();
       state.creatorAgentModel = String(payload.creatorAgentModel || "").trim();
+      state.creatorAgentProviders = payload.creatorAgentProviders || null;
       state.publicConfigLoaded = true;
     } catch (error) {
       state.publicConfigError = error?.message || "Could not load cloud integration settings.";
@@ -1443,7 +1447,9 @@
     }
     return window.CL_CREATOR_AGENT.render({
       configured: state.creatorAgentConfigured,
+      provider: state.creatorAgentProvider,
       model: state.creatorAgentModel,
+      providers: state.creatorAgentProviders,
     });
   }
 
@@ -1770,11 +1776,13 @@
       </div>
       <div class="card" style="padding:14px;margin-bottom:12px">
         <h2 style="font-size:14px">Creator Agent</h2>
-        <p class="meta">Status: ${state.creatorAgentConfigured ? "Configured · " + esc(state.creatorAgentModel || "model ready") : "Not configured"}</p>
+        <p class="meta">Status: ${state.creatorAgentConfigured
+          ? "Configured · " + esc(state.creatorAgentProvider || "AI") + " · " + esc(state.creatorAgentModel || "model ready")
+          : "Not configured · default provider Gemini"}</p>
         <p>Researches reference videos and optional public GitHub project context, proposes three angles, then creates the research brief, script, and production blueprint after you choose.</p>
         ${state.creatorAgentConfigured
           ? '<button class="btn primary" data-go="/agent">Open Creator Agent</button>'
-          : '<p class="meta">Add <code>OPENAI_API_KEY</code> to the Render environment. <code>OPENAI_MODEL</code> is optional.</p>'}
+          : '<p class="meta">For the free alpha: set <code>AI_PROVIDER=gemini</code> and add <code>GEMINI_API_KEY</code>. Optional fallbacks: Groq, OpenRouter, OpenAI, or a local OpenAI-compatible model.</p>'}
       </div>
       <div class="card" style="padding:14px">
         <h2 style="font-size:14px">Research preferences</h2>
@@ -2088,7 +2096,8 @@
 
   render();
   loadPublicConfig().then(() => {
-    if ((state.route.split("?")[0] || "/") === "/settings") render();
+    const path = state.route.split("?")[0] || "/";
+    if (path === "/settings" || path === "/agent") render();
   });
   loadRouteData(state.route);
 })();

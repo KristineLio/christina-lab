@@ -37,6 +37,8 @@
     const research = state.research;
     const result = state.result;
     const configured = Boolean(config && config.configured);
+    const provider = String(config && config.provider || "gemini");
+    const model = String(config && config.model || "");
     const sourceById = {};
     (research && research.sourceMaterials || []).forEach(function (source) {
       sourceById[String(source.id)] = source;
@@ -47,12 +49,13 @@
     html += '<span class="badge strong">Human chooses the angle</span>';
     html += '<h2 style="font-size:20px;margin:8px 0 6px">Research → choose → production package</h2>';
     html += '<p class="sub" style="margin:0">Give Christina Lab the seed. The agent studies reference videos, saved research, and an optional public GitHub repo. It proposes three directions first; it only writes the full package after you choose.</p>';
+    html += '<div class="meta" style="margin-top:8px">AI: ' + esc(provider) + (model ? ' · ' + esc(model) : '') + ' · provider can be swapped without changing the workflow.</div>';
     html += '</div></div>';
 
     if (!configured) {
       html += '<div class="empty" style="margin-top:12px">';
       html += '<h3>Creator Agent needs one backend key.</h3>';
-      html += '<p>Add <code>OPENAI_API_KEY</code> on Render. The key stays server-side and is never sent to the browser.</p>';
+      html += '<p>For the free alpha, add <code>GEMINI_API_KEY</code> and keep <code>AI_PROVIDER=gemini</code>. Keys stay server-side and are never sent to the browser.</p>';
       html += '<button class="btn" data-go="/settings">Open Settings</button></div>';
     }
 
@@ -136,7 +139,7 @@
       html += '<div class="card agent-result" style="margin-top:12px;padding:14px">';
       html += '<span class="badge strong">Package created</span>';
       html += '<h2 style="margin:8px 0 6px">' + esc(result.idea && result.idea.title || "Creator package") + '</h2>';
-      html += '<p class="meta">Saved as a Draft idea with ' + (result.documents || []).length + ' attached Markdown documents.</p>';
+      html += '<p class="meta">Saved as a Draft idea with ' + (result.documents || []).length + ' attached Markdown documents · ' + esc(result.provider || provider) + ' · ' + esc(result.model || model) + '.</p>';
       html += '<div class="grid2" style="margin-top:12px"><div><b>Thumbnail</b><p class="meta">' + esc(result.thumbnailConcept) + '</p></div>';
       html += '<div><b>CTA</b><p class="meta">' + esc(result.cta) + '</p></div></div>';
       html += '<div class="actions" style="margin-top:12px"><button class="btn primary" data-go="/ideas">Open Ideas</button>';

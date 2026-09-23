@@ -9,33 +9,18 @@ from urllib.parse import urlparse
 import httpx
 
 
-OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
-DEFAULT_AGENT_MODEL = "gpt-5.6-luna"
+from .ai_provider import (
+    AIProviderError,
+    creator_agent_configured,
+    creator_agent_model,
+    creator_agent_provider,
+    generate_structured,
+    provider_status,
+)
 
 
 class CreatorAgentError(RuntimeError):
     pass
-
-
-def creator_agent_configured() -> bool:
-    return bool(os.getenv("OPENAI_API_KEY", "").strip())
-
-
-def creator_agent_model() -> str:
-    return os.getenv("OPENAI_MODEL", DEFAULT_AGENT_MODEL).strip() or DEFAULT_AGENT_MODEL
-
-
-def _extract_output_text(payload: dict[str, Any]) -> str:
-    for item in payload.get("output", []) or []:
-        if item.get("type") != "message":
-            continue
-        for part in item.get("content", []) or []:
-            if part.get("type") == "output_text" and part.get("text"):
-                return str(part["text"])
-    value = payload.get("output_text")
-    if value:
-        return str(value)
-    raise CreatorAgentError("The model returned no usable text output.")
 
 
 async def _structured_response(
@@ -45,58 +30,17 @@ async def _structured_response(
     schema_name: str,
     schema: dict[str, Any],
     max_output_tokens: int = 6000,
-) -> dict[str, Any]:
-    api_key = os.getenv("OPENAI_API_KEY", "").strip()
-    if not api_key:
-        raise CreatorAgentError("OPENAI_API_KEY is not configured.")
-
-    body = {
-        "model": creator_agent_model(),
-        "instructions": instructions,
-        "input": prompt,
-        "max_output_tokens": max_output_tokens,
-        "text": {
-            "format": {
-                "type": "json_schema",
-                "name": schema_name,
-                "strict": True,
-                "schema": schema,
-            }
-        },
-    }
-
+):
     try:
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            response = await client.post(
-                OPENAI_RESPONSES_URL,
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
-                json=body,
-            )
-    except httpx.HTTPError as exc:
-        raise CreatorAgentError(f"Creator Agent could not reach the model API: {exc}") from exc
-
-    if response.is_error:
-        detail = f"Model API request failed (HTTP {response.status_code})."
-        try:
-            payload = response.json()
-            detail = (
-                payload.get("error", {}).get("message")
-                or payload.get("message")
-                or detail
-            )
-        except ValueError:
-            pass
-        raise CreatorAgentError(detail)
-
-    payload = response.json()
-    raw = _extract_output_text(payload)
-    try:
-        return json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise CreatorAgentError("The model returned invalid structured output.") from exc
+        return await generate_structured(
+            instructions=instructions,
+            prompt=prompt,
+            schema_name=schema_name,
+            schema=schema,
+            max_output_tokens=max_output_tokens,
+        )
+    except AIProviderError as exc:
+        raise CreatorAgentError(str(exc)) from exc
 
 
 def _github_repo_parts(repo_url: str | None) -> tuple[str, str] | None:
@@ -414,7 +358,7 @@ Do not claim you watched a video or read a transcript; the YouTube evidence here
 The bestStartingAngleId should identify the strongest starting option for this channel, but the user will still choose.
 """
 
-    result = await _structured_response(
+    result, provider_attempt = await _structured_response(
         instructions=SYSTEM_INSTRUCTIONS,
         prompt=prompt,
         schema_name="creator_agent_angles",
@@ -451,6 +395,8 @@ The bestStartingAngleId should identify the strongest starting option for this c
         "angles": angles,
         "bestStartingAngleId": result.get("bestStartingAngleId", ""),
         "repoContext": repo_context,
+        "agentProvider": provider_attempt.provider,
+        "agentModel": provider_attempt.model,
     }
 
 
@@ -517,10 +463,15 @@ PRODUCTION BLUEPRINT requirements:
 The output should be directly useful as a draft that the creator can edit, not a high-level outline.
 """
 
-    return await _structured_response(
+    result, provider_attempt = await _structured_response(
         instructions=SYSTEM_INSTRUCTIONS,
         prompt=prompt,
         schema_name="creator_agent_package",
         schema=PACKAGE_SCHEMA,
         max_output_tokens=10000,
     )
+    return {
+        **result,
+        "_agentProvider": provider_attempt.provider,
+        "_agentModel": provider_attempt.model,
+    }
