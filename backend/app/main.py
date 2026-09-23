@@ -13,10 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
-from .data_migration import export_database
-from .storage import SnapshotStore
-from .youtube import YouTubeAPIError, YouTubeClient
-
+from .creator_agent import (\n    CreatorAgentError,\n    creator_agent_configured,\n    creator_agent_model,\n    generate_package,\n    load_github_repo_context,\n    relevant_saved_research,\n    compact_youtube_sources,\n    research_angles,\n)\nfrom .data_migration import export_database\nfrom .storage import SnapshotStore\nfrom .youtube import YouTubeAPIError, YouTubeClient\n
 
 load_dotenv()
 
@@ -94,6 +91,48 @@ class IdeaDocumentCloudUpdate(BaseModel):
     url: str = Field(min_length=1, max_length=1000)
 
 
+class CreatorAgentResearchRequest(BaseModel):
+    project: str = Field(min_length=2, max_length=240)
+    goal: str = Field(
+        default="Document my progress from code to career by showing what I build, learn, and test.",
+        max_length=1000,
+    )
+    topic: str = Field(default="", max_length=240)
+    repoUrl: str | None = Field(default=None, max_length=1000)
+    contentType: str = Field(default="Long-form", max_length=40)
+
+
+class CreatorAgentAngle(BaseModel):
+    id: str = Field(min_length=1, max_length=80)
+    title: str = Field(min_length=1, max_length=300)
+    hook: str = Field(default="", max_length=1000)
+    positioning: str = Field(default="", max_length=3000)
+    whyThisCouldWork: str = Field(default="", max_length=3000)
+    whatMakesItYours: str = Field(default="", max_length=3000)
+    sourceIds: list[str] = Field(default_factory=list)
+
+
+class CreatorAgentSource(BaseModel):
+    id: str = Field(min_length=1, max_length=80)
+    title: str = Field(default="", max_length=500)
+    channel: str = Field(default="", max_length=300)
+    url: str = Field(default="", max_length=1000)
+    type: str = Field(default="", max_length=80)
+    views: int = Field(default=0, ge=0)
+    opportunity: float | int | None = None
+    outlier: float | None = None
+    engagement: float | None = None
+    topic: str = Field(default="", max_length=300)
+    whyUseful: str = Field(default="", max_length=3000)
+    useFor: str = Field(default="", max_length=3000)
+    caution: str = Field(default="", max_length=3000)
+
+
+class CreatorAgentPackageRequest(CreatorAgentResearchRequest):
+    angle: CreatorAgentAngle
+    sourceMaterials: list[CreatorAgentSource] = Field(default_factory=list)
+
+
 class ExperimentCreate(BaseModel):
     ideaId: int = Field(ge=1)
     name: str | None = Field(default=None, max_length=240)
@@ -145,6 +184,8 @@ async def health() -> dict:
         "status": "ok",
         "youtubeConfigured": bool(os.getenv("YOUTUBE_API_KEY")),
         "googleDocsConfigured": bool(os.getenv("GOOGLE_OAUTH_CLIENT_ID")),
+        "creatorAgentConfigured": creator_agent_configured(),
+        "creatorAgentModel": creator_agent_model() if creator_agent_configured() else None,
         "snapshotStore": snapshot_store.stats(),
     }
 
@@ -174,6 +215,8 @@ async def public_config() -> dict:
     return {
         "googleOAuthClientId": os.getenv("GOOGLE_OAUTH_CLIENT_ID", "").strip(),
         "googleDriveScope": "https://www.googleapis.com/auth/drive.file",
+        "creatorAgentConfigured": creator_agent_configured(),
+        "creatorAgentModel": creator_agent_model() if creator_agent_configured() else "",
     }
 
 
@@ -385,6 +428,145 @@ async def delete_idea_document(document_id: int) -> dict:
     return {
         "documentId": document_id,
         "deleted": snapshot_store.delete_idea_document(document_id),
+    }
+
+
+@app.post("/api/agent/research")
+async def creator_agent_research(payload: CreatorAgentResearchRequest) -> dict:
+    if not creator_agent_configured():
+        raise HTTPException(
+            status_code=503,
+            detail="Creator Agent is not configured. Add OPENAI_API_KEY to the backend environment.",
+        )
+
+    api_key = os.getenv("YOUTUBE_API_KEY", "").strip()
+    if not api_key:
+        raise HTTPException(
+            status_code=503,
+            detail="YOUTUBE_API_KEY is not configured on the backend.",
+        )
+
+    search_query = (payload.topic or payload.project).strip()
+    try:
+        youtube = await YouTubeClient(api_key, snapshot_store=snapshot_store).discover(
+            query=search_query,
+            max_results=12,
+            published_after_days=3650,
+            mode="reference",
+        )
+    except YouTubeAPIError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    repo_context = await load_github_repo_context(payload.repoUrl)
+    saved = relevant_saved_research(
+        snapshot_store.list_saved_research(),
+        project=payload.project,
+        topic=payload.topic,
+    )
+    sources = compact_youtube_sources(youtube.get("videos", []), limit=10)
+
+    try:
+        result = await research_angles(
+            project=payload.project.strip(),
+            goal=payload.goal.strip(),
+            topic=payload.topic.strip(),
+            content_type=payload.contentType.strip() or "Long-form",
+            repo_context=repo_context,
+            youtube_sources=sources,
+            saved_research=saved,
+        )
+    except CreatorAgentError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    return {
+        **result,
+        "project": payload.project.strip(),
+        "goal": payload.goal.strip(),
+        "topic": payload.topic.strip(),
+        "contentType": payload.contentType.strip() or "Long-form",
+        "youtubeCount": len(sources),
+        "savedResearchCount": len(saved),
+    }
+
+
+@app.post("/api/agent/package", status_code=201)
+async def creator_agent_package(payload: CreatorAgentPackageRequest) -> dict:
+    if not creator_agent_configured():
+        raise HTTPException(
+            status_code=503,
+            detail="Creator Agent is not configured. Add OPENAI_API_KEY to the backend environment.",
+        )
+
+    repo_context = await load_github_repo_context(payload.repoUrl)
+    saved = relevant_saved_research(
+        snapshot_store.list_saved_research(),
+        project=payload.project,
+        topic=payload.topic,
+    )
+    source_materials = [item.model_dump() for item in payload.sourceMaterials]
+    angle = payload.angle.model_dump()
+
+    try:
+        package = await generate_package(
+            project=payload.project.strip(),
+            goal=payload.goal.strip(),
+            topic=payload.topic.strip(),
+            content_type=payload.contentType.strip() or "Long-form",
+            repo_context=repo_context,
+            chosen_angle=angle,
+            source_materials=source_materials,
+            saved_research=saved,
+        )
+    except CreatorAgentError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    idea_payload = package.get("idea", {})
+    idea = snapshot_store.create_idea(
+        title=str(idea_payload.get("title") or payload.angle.title).strip(),
+        source_video_id=None,
+        hook=str(idea_payload.get("hook") or payload.angle.hook).strip(),
+        topic=str(idea_payload.get("topic") or payload.topic or payload.project).strip(),
+        content_type=str(idea_payload.get("contentType") or payload.contentType or "Long-form").strip(),
+        angle=str(idea_payload.get("angle") or payload.angle.positioning).strip(),
+        audience=str(idea_payload.get("audience") or "").strip(),
+        hypothesis=str(idea_payload.get("hypothesis") or "").strip(),
+        notes=str(idea_payload.get("notes") or "Generated by Christina Lab Creator Agent.").strip(),
+        priority="Med",
+        status="Draft",
+    )
+
+    safe_slug = "".join(
+        char.lower() if char.isalnum() else "-"
+        for char in str(idea.get("title") or "creator-package")
+    )
+    safe_slug = "-".join(part for part in safe_slug.split("-") if part)[:72] or "creator-package"
+
+    docs = []
+    for kind, suffix, body in (
+        ("reference", "research-brief", package.get("researchBrief", "")),
+        ("script", "script", package.get("script", "")),
+        ("plan", "production-blueprint", package.get("productionBlueprint", "")),
+    ):
+        text_body = str(body or "").strip()
+        if not text_body:
+            continue
+        docs.append(
+            snapshot_store.save_idea_document(
+                int(idea["id"]),
+                kind=kind,
+                filename=f"{safe_slug}-{suffix}.md",
+                content_type="text/markdown; charset=utf-8",
+                content=text_body.encode("utf-8"),
+            )
+        )
+
+    return {
+        "idea": idea,
+        "documents": docs,
+        "thumbnailConcept": package.get("thumbnailConcept", ""),
+        "description": package.get("description", ""),
+        "cta": package.get("cta", ""),
+        "model": creator_agent_model(),
     }
 
 
