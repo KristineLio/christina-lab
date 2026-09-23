@@ -2096,7 +2096,8 @@
 
   render();
   loadPublicConfig().then(() => {
-    if ((state.route.split("?")[0] || "/") === "/settings") render();
+    const path = state.route.split("?")[0] || "/";
+    if (path === "/settings" || path === "/agent") render();
   });
   loadRouteData(state.route);
 })();
