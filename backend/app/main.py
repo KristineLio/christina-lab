@@ -185,7 +185,9 @@ async def health() -> dict:
         "youtubeConfigured": bool(os.getenv("YOUTUBE_API_KEY")),
         "googleDocsConfigured": bool(os.getenv("GOOGLE_OAUTH_CLIENT_ID")),
         "creatorAgentConfigured": creator_agent_configured(),
+        "creatorAgentProvider": creator_agent_provider(),
         "creatorAgentModel": creator_agent_model() if creator_agent_configured() else None,
+        "creatorAgentProviders": provider_status(),
         "snapshotStore": snapshot_store.stats(),
     }
 
@@ -216,7 +218,9 @@ async def public_config() -> dict:
         "googleOAuthClientId": os.getenv("GOOGLE_OAUTH_CLIENT_ID", "").strip(),
         "googleDriveScope": "https://www.googleapis.com/auth/drive.file",
         "creatorAgentConfigured": creator_agent_configured(),
+        "creatorAgentProvider": creator_agent_provider(),
         "creatorAgentModel": creator_agent_model() if creator_agent_configured() else "",
+        "creatorAgentProviders": provider_status(),
     }
 
 
@@ -436,7 +440,7 @@ async def creator_agent_research(payload: CreatorAgentResearchRequest) -> dict:
     if not creator_agent_configured():
         raise HTTPException(
             status_code=503,
-            detail="Creator Agent is not configured. Add OPENAI_API_KEY to the backend environment.",
+            detail="Creator Agent is not configured. Add a key for the selected AI provider (Gemini is the default).",
         )
 
     api_key = os.getenv("YOUTUBE_API_KEY", "").strip()
@@ -566,7 +570,8 @@ async def creator_agent_package(payload: CreatorAgentPackageRequest) -> dict:
         "thumbnailConcept": package.get("thumbnailConcept", ""),
         "description": package.get("description", ""),
         "cta": package.get("cta", ""),
-        "model": creator_agent_model(),
+        "provider": package.get("_agentProvider") or creator_agent_provider(),
+        "model": package.get("_agentModel") or creator_agent_model(),
     }
 
 
