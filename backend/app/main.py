@@ -619,7 +619,7 @@ async def frontend_index():
 
 @app.get("/{asset_name}", include_in_schema=False)
 async def frontend_asset(asset_name: str):
-    allowed_assets = {"styles.css", "data.js", "app.js", "thumb.jpg"}
+    allowed_assets = {"styles.css", "data.js", "agent.js", "app.js", "thumb.jpg"}
     if asset_name not in allowed_assets:
         raise HTTPException(status_code=404, detail="Not found.")
     return FileResponse(os.path.join(FRONTEND_DIR, asset_name))
