@@ -513,7 +513,7 @@ async def creator_agent_package(payload: CreatorAgentPackageRequest) -> dict:
     if not creator_agent_configured():
         raise HTTPException(
             status_code=503,
-            detail="Creator Agent is not configured. Add OPENAI_API_KEY to the backend environment.",
+            detail="Creator Agent is not configured. Add a key for the selected AI provider (Gemini is the default).",
         )
 
     repo_context = await load_github_repo_context(payload.repoUrl)
