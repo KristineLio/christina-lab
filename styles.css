@@ -363,3 +363,12 @@ body,
 @media (max-width: 900px) {
   .agent-source { grid-template-columns: 1fr; }
 }
+
+.grid3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+@media (max-width: 1000px) {
+  .grid3 { grid-template-columns: 1fr; }
+}
