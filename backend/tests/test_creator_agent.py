@@ -1,4 +1,5 @@
 from backend.app.creator_agent import (
+    PACKAGE_SCHEMA,
     _github_repo_parts,
     compact_youtube_sources,
     relevant_saved_research,
@@ -82,3 +83,14 @@ def test_compact_youtube_sources_keeps_only_agent_evidence_fields():
             "topic": "weather app",
         }
     ]
+
+
+def test_package_schema_includes_video_builder_manifest():
+    assert "renderManifest" in PACKAGE_SCHEMA["properties"]
+    manifest = PACKAGE_SCHEMA["properties"]["renderManifest"]
+    assert set(manifest["required"]) == {"video", "scenes"}
+
+    scene = manifest["properties"]["scenes"]["items"]
+    assert "visualModes" in scene["properties"]
+    assert "assets" in scene["properties"]
+    assert "captureRequest" in scene["properties"]
