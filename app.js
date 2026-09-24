@@ -56,10 +56,9 @@
     workflowError: "",
     collections: "All",
     savedView: "grid",
-    watchTab: "channels",
     loading: false,
     error: false,
-    niches: "trading, AI tools, build in public",
+    niches: "coding, AI, career, build in public",
     liveVideos: restoredLiveSession?.videos || [],
     apiError: "",
     dashboardData: null,
@@ -1733,35 +1732,6 @@
         <p>The old VibeFlow example channels and topic counters have been removed. When watchlist persistence is implemented, real saved items will appear here.</p>
         <button class="btn primary" data-go="/discover">Open Discover</button>
       </div>`;
-  }{
-    return `
-      <p class="sub">Channels and topics worth scanning again.</p>
-      <div class="tabs">
-        <button class="btn ${state.watchTab === "channels" ? "primary" : ""}" data-tab="channels">Channels</button>
-        <button class="btn ${state.watchTab === "topics" ? "primary" : ""}" data-tab="topics">Topics</button>
-      </div>
-      ${
-        state.watchTab === "channels"
-          ? `<div class="card">${[
-              ["SignalDesk", "84K", 3, 2, "14.5K", "Copy trading 6.8×", "Watching"],
-              ["BuildFast", "61K", 4, 3, "17.6K", "AI 24h 8.4×", "Hot"],
-              ["RiskDesk", "121K", 2, 1, "16.6K", "Mistakes 2.4×", "Steady"],
-            ]
-              .map(
-                (r) => `<div class="opp" style="grid-template-columns:40px 1fr">
-                <img class="avatar" src="https://api.dicebear.com/7.x/identicon/svg?seed=${r[0]}" alt="${r[0]} channel avatar" />
-                <div><div class="t">${r[0]}</div><div class="meta">${r[1]} subs · ${r[2]} recent uploads · ${r[3]} outliers · baseline ${r[4]} · ${r[5]} · ${r[6]}</div></div>
-              </div>`
-              )
-              .join("")}</div>`
-          : `<div class="card">${[
-              ["Copy Trading", 18, 5, "High", "2h ago"],
-              ["AI building", 22, 7, "Extreme", "1h ago"],
-              ["Creator growth", 14, 4, "High", "4h ago"],
-            ]
-              .map((r) => `<div class="rank"><span>${r[0]}</span><span>${r[1]} analyzed</span><span>${r[2]} outliers</span><span>${r[3]} · ${r[4]}</span></div>`)
-              .join("")}</div>`
-      }`;
   }
 
   function settings() {
@@ -1905,12 +1875,6 @@
     document.querySelectorAll("[data-view]").forEach((b) => {
       b.onclick = () => {
         state.savedView = b.dataset.view;
-        render();
-      };
-    });
-    document.querySelectorAll("[data-tab]").forEach((b) => {
-      b.onclick = () => {
-        state.watchTab = b.dataset.tab;
         render();
       };
     });
