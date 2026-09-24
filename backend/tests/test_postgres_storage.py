@@ -90,4 +90,4 @@ def test_postgres_storage_roundtrip():
                 "SELECT version FROM schema_migrations ORDER BY version"
             ).fetchall()
         ]
-    assert versions == [1, 2, 3]
+    assert versions == [1, 2, 3, 4]

@@ -174,10 +174,59 @@ def _migration_3_document_cloud_metadata(db: DatabaseConnection) -> None:
         db.execute("ALTER TABLE idea_documents ADD COLUMN cloud_uploaded_at TEXT")
 
 
+def _migration_4_prune_legacy_unsaved_research(db: DatabaseConnection) -> None:
+    """One-time cleanup of prototype research history.
+
+    The early VibeFlow/alpha workflow accumulated large amounts of temporary
+    YouTube candidate and channel-history data while the product was being
+    tested. Keep only research that the creator explicitly saved or that an
+    Idea still references. Creator workflow rows (ideas, documents and
+    experiments) are left untouched.
+
+    Delete child rows explicitly so the cleanup behaves the same on SQLite and
+    PostgreSQL even if foreign-key cascade settings differ.
+    """
+
+    removable_video_ids = """
+        SELECT v.video_id
+        FROM videos v
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM saved_research sr
+            WHERE sr.video_id = v.video_id
+        )
+        AND NOT EXISTS (
+            SELECT 1
+            FROM ideas i
+            WHERE i.source_video_id = v.video_id
+        )
+    """
+
+    db.execute(
+        f"""
+        DELETE FROM video_analyses
+        WHERE video_id IN ({removable_video_ids})
+        """
+    )
+    db.execute(
+        f"""
+        DELETE FROM video_snapshots
+        WHERE video_id IN ({removable_video_ids})
+        """
+    )
+    db.execute(
+        f"""
+        DELETE FROM videos
+        WHERE video_id IN ({removable_video_ids})
+        """
+    )
+
+
 MIGRATIONS: tuple[tuple[int, str, Callable[[DatabaseConnection], None]], ...] = (
     (1, "base_schema", _migration_1_base_schema),
     (2, "video_metadata", _migration_2_video_metadata),
     (3, "document_cloud_metadata", _migration_3_document_cloud_metadata),
+    (4, "prune_legacy_unsaved_research", _migration_4_prune_legacy_unsaved_research),
 )
 
 
