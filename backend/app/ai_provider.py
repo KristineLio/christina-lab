@@ -62,6 +62,20 @@ def provider_model(provider: str) -> str:
     return os.getenv(env_name, DEFAULT_MODELS[provider]).strip() or DEFAULT_MODELS[provider]
 
 
+def gemini_model_order() -> list[str]:
+    primary = provider_model("gemini")
+    configured_fallbacks = os.getenv(
+        "GEMINI_FALLBACK_MODELS",
+        "gemini-3.5-flash-lite,gemini-3.1-flash-lite",
+    )
+    fallbacks = [item.strip() for item in configured_fallbacks.split(",") if item.strip()]
+    result: list[str] = []
+    for model in [primary, *fallbacks]:
+        if model and model not in result:
+            result.append(model)
+    return result
+
+
 def provider_configured(provider: str) -> bool:
     provider = _clean_provider(provider)
     if not provider:
@@ -116,6 +130,7 @@ def provider_status() -> dict[str, Any]:
         "activeModel": provider_model(active),
         "providerOrder": provider_order(),
         "configuredProviders": configured_providers(),
+        "geminiModelOrder": gemini_model_order() if "gemini" in provider_order() else [],
     }
 
 
@@ -246,12 +261,13 @@ async def _gemini_structured(
     prompt: str,
     schema: dict[str, Any],
     max_output_tokens: int,
+    model: str | None = None,
 ) -> dict[str, Any]:
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
     if not api_key:
         raise AIProviderError("GEMINI_API_KEY is not configured.")
 
-    model = provider_model("gemini")
+    model = (model or provider_model("gemini")).strip()
     body = {
         "model": model,
         "system_instruction": instructions,
@@ -479,12 +495,23 @@ async def generate_structured(
                 "max_output_tokens": max_output_tokens,
             }
             if provider == "gemini":
-                result = await _gemini_structured(
-                    instructions=instructions,
-                    prompt=prompt,
-                    schema=schema,
-                    max_output_tokens=max_output_tokens,
-                )
+                gemini_errors: list[str] = []
+                for gemini_model in gemini_model_order():
+                    try:
+                        result = await _gemini_structured(
+                            instructions=instructions,
+                            prompt=prompt,
+                            schema=schema,
+                            max_output_tokens=max_output_tokens,
+                            model=gemini_model,
+                        )
+                        return result, ProviderAttempt(
+                            provider=provider,
+                            model=gemini_model,
+                        )
+                    except AIProviderError as exc:
+                        gemini_errors.append(f"{gemini_model}: {exc}")
+                raise AIProviderError(" | ".join(gemini_errors))
             elif provider == "groq":
                 result = await _groq_structured(**kwargs)
             elif provider == "openrouter":

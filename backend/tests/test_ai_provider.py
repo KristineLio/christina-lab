@@ -3,6 +3,7 @@ from backend.app.ai_provider import (
     _extract_gemini_text,
     _gemini_schema,
     configured_providers,
+    gemini_model_order,
     creator_agent_model,
     creator_agent_provider,
     provider_order,
@@ -107,3 +108,30 @@ def test_gemini_schema_removes_additional_properties_recursively():
 
 def test_gemini_interactions_uses_stable_v1_endpoint():
     assert GEMINI_INTERACTIONS_URL == "https://generativelanguage.googleapis.com/v1/interactions"
+
+
+def test_gemini_model_order_uses_free_fallbacks_by_default(monkeypatch):
+    _clear_provider_env(monkeypatch)
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setenv("GEMINI_MODEL", "gemini-3.8-flash")
+
+    assert gemini_model_order() == [
+        "gemini-3.8-flash",
+        "gemini-3.5-flash-lite",
+        "gemini-3.1-flash-lite",
+    ]
+
+
+def test_gemini_model_order_respects_explicit_fallbacks(monkeypatch):
+    _clear_provider_env(monkeypatch)
+    monkeypatch.setenv("GEMINI_MODEL", "gemini-3.8-flash")
+    monkeypatch.setenv(
+        "GEMINI_FALLBACK_MODELS",
+        "gemini-3.5-flash-lite,gemini-3.8-flash,gemini-3.1-flash-lite",
+    )
+
+    assert gemini_model_order() == [
+        "gemini-3.8-flash",
+        "gemini-3.5-flash-lite",
+        "gemini-3.1-flash-lite",
+    ]
