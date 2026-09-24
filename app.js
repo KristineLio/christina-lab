@@ -5,13 +5,11 @@
  * Dashboard, Discover, Video Analysis, Saved Research, Ideas,
  * Experiments, My Videos, Patterns, Analytics, Watchlists, and Settings.
  *
- * Live research, Saved Research, Ideas, Experiments, Dashboard, and Patterns
- * now use the FastAPI + SQLite backend. Remaining demo-only screens are kept
- * isolated while later milestones replace them with creator-owned data.
+ * Production views use the FastAPI backend and persisted Christina Lab data.
+ * Demo/mock datasets are intentionally not loaded in the live workspace.
  */
 
 (function () {
-  const D = window.CL_DATA;
   const $ = (id) => document.getElementById(id);
   const API_BASE =
     window.CL_API_BASE ||
@@ -58,11 +56,9 @@
     workflowError: "",
     collections: "All",
     savedView: "grid",
-    watchTab: "channels",
     loading: false,
     error: false,
-    connected: false,
-    niches: "trading, AI tools, build in public",
+    niches: "coding, AI, career, build in public",
     liveVideos: restoredLiveSession?.videos || [],
     apiError: "",
     dashboardData: null,
@@ -73,6 +69,7 @@
     patternsError: "",
     publicConfigLoaded: false,
     publicConfigError: "",
+    youtubeConfigured: false,
     googleOAuthClientId: "",
     googleDriveScope: "https://www.googleapis.com/auth/drive.file",
     googleAccessToken: "",
@@ -116,8 +113,11 @@
   }
 
   function allKnownVideos() {
-    const liveIds = new Set(state.liveVideos.map((v) => v.id));
-    return [...state.liveVideos, ...D.videos.filter((v) => !liveIds.has(v.id))];
+    const liveIds = new Set(state.liveVideos.map((v) => String(v.id)));
+    const saved = state.savedResearch
+      .map((v) => ({ ...v, id: v.videoId || v.id, source: "saved-research", persistedResearch: true }))
+      .filter((v) => v.id && !liveIds.has(String(v.id)));
+    return [...state.liveVideos, ...saved];
   }
 
   function videoById(id) {
@@ -211,6 +211,7 @@
     state.publicConfigError = "";
     try {
       const payload = await fetchJson("/api/config/public");
+      state.youtubeConfigured = Boolean(payload.youtubeConfigured);
       state.googleOAuthClientId = String(payload.googleOAuthClientId || "").trim();
       state.googleDriveScope = String(payload.googleDriveScope || "https://www.googleapis.com/auth/drive.file");
       state.creatorAgentConfigured = Boolean(payload.creatorAgentConfigured);
@@ -343,6 +344,7 @@
       clean === "/agent" ||
       clean === "/lab" ||
       clean === "/videos" ||
+      clean === "/analytics" ||
       clean.startsWith("/experiment/") ||
       clean.startsWith("/video/")
     );
@@ -395,21 +397,21 @@
     if (state.patternsLoading || (state.patternsData && !force)) return;
     state.patternsLoading = true;
     state.patternsError = "";
-    if (state.route.split("?")[0] === "/patterns") render();
+    if (["/patterns", "/analytics"].includes(state.route.split("?")[0])) render();
     try {
       state.patternsData = await fetchJson("/api/patterns");
     } catch (error) {
       state.patternsError = error?.message || "Could not load persisted pattern data.";
     } finally {
       state.patternsLoading = false;
-      if (state.route.split("?")[0] === "/patterns") render();
+      if (["/patterns", "/analytics"].includes(state.route.split("?")[0])) render();
     }
   }
 
   function loadRouteData(path = state.route) {
     const clean = String(path || "/").split("?")[0] || "/";
     if (clean === "/") loadDashboardData();
-    if (clean === "/patterns") loadPatternsData();
+    if (clean === "/patterns" || clean === "/analytics") loadPatternsData();
     if (workflowRoute(clean)) loadWorkflowData();
   }
 
@@ -872,7 +874,7 @@
         </nav>
         <div class="profile">
           <img class="avatar" src="https://api.dicebear.com/7.x/avataaars/svg?seed=Christina" alt="Christina avatar" />
-          <div><div>Christina</div><small>Workspace · Demo</small></div>
+          <div><div>Christina</div><small>Workspace · Live data</small></div>
         </div>
       </aside>
       <div class="main">
@@ -889,7 +891,7 @@
   }
 
   function filteredVideos() {
-    let list = (state.searched ? state.liveVideos : D.videos).slice();
+    let list = (state.searched ? state.liveVideos : []).slice();
     const q = state.query.trim().toLowerCase();
     if (q) {
       list = list.filter(
@@ -989,7 +991,7 @@
 
     const d = state.dashboardData;
     if (!d) {
-      return `<div class="empty"><h3>Loading real research data…</h3><p>The Dashboard now reads from Christina Lab's persisted SQLite research history.</p></div>`;
+      return `<div class="empty"><h3>Loading real research data…</h3><p>The Dashboard reads from Christina Lab's persisted research history.</p></div>`;
     }
 
     const m = d.metrics || {};
@@ -1001,7 +1003,7 @@
     return `
       <div class="loop">Discover → Analyze → Snapshot → Compare → <b>Learn</b></div>
       <div style="font-size:22px;font-weight:600">Christina Lab research dashboard</div>
-      <p class="sub">Real metrics from your local research database — no demo counters.</p>
+      <p class="sub">Real metrics from Christina Lab's persisted research database — no demo counters.</p>
 
       <div class="metrics">
         <div class="metric"><label>Public Videos Observed</label><div class="val num">${fmt(m.videosTracked || 0)}</div><div class="sec">candidates + channel-history videos</div></div>
@@ -1082,7 +1084,7 @@
 
   function discover() {
     const list = state.searched ? filteredVideos() : [];
-    const topicSource = state.searched ? state.liveVideos : D.videos;
+    const topicSource = state.searched ? state.liveVideos : [];
     const topics = ["All", ...new Set(topicSource.map((v) => v.topic).filter(Boolean))];
     const option = (value, label) =>
       `<option value="${value}" ${state.filters.time === value ? "selected" : ""}>${label}</option>`;
@@ -1673,79 +1675,63 @@
   }
 
   function analytics() {
+    const gate = workflowGate();
+    if (gate) return gate;
+
+    if (state.patternsLoading && !state.patternsData) {
+      return `<div class="card" style="padding:16px"><div class="skel"></div><div class="skel"></div><div class="skel"></div></div>`;
+    }
+
+    const summary = state.workflowSummary || {};
+    const marketTopics = Array.isArray(state.patternsData?.topics) ? state.patternsData.topics : [];
+    const creatorSignals = Array.isArray(state.learningSignals) ? state.learningSignals : [];
+    const decisions = summary.decisions || {};
+
     return `
-      <p class="sub">What the market rewards vs what actually works for Christina.</p>
-      <div class="grid2">
-        <div class="card"><div class="card-h"><h2>Market Signals</h2><p>What appears to work broadly.</p></div>
-          ${[
-            ["AI challenge videos", "Strong"],
-            ["Trading mistakes", "Moderate"],
-            ["Copy trading contradictions", "Strong"],
-            ["Build in public", "Interesting"],
-          ]
-            .map((r) => `<div class="rank"><span>${r[0]}</span><span></span><span></span><span class="badge strong">${r[1]}</span></div>`)
-            .join("")}
-        </div>
-        <div class="card"><div class="card-h"><h2>Christina Signals</h2><p>What appears to work for this creator.</p></div>
-          ${[
-            ["AI challenge videos", "TEST"],
-            ["Trading mistakes", "GO"],
-            ["Copy trading contradictions", "GO"],
-            ["Build in public", "HOLD"],
-          ]
-            .map((r) => `<div class="rank"><span>${r[0]}</span><span></span><span></span><span class="badge ${r[1].toLowerCase()}">${r[1]}</span></div>`)
-            .join("")}
-        </div>
+      <p class="sub">Market research vs Christina's own experiment evidence. Every value on this page comes from persisted Christina Lab data.</p>
+
+      <div class="metrics">
+        <div class="metric"><label>Saved Research</label><div class="val num">${fmt(summary.savedResearch || 0)}</div><div class="sec">real saved YouTube research</div></div>
+        <div class="metric"><label>Experiments</label><div class="val num">${fmt(summary.experiments || 0)}</div><div class="sec">${fmt(summary.publishedExperiments || 0)} published</div></div>
+        <div class="metric"><label>GO Decisions</label><div class="val num">${fmt(decisions.GO || 0)}</div><div class="sec">from recorded experiment results</div></div>
+        <div class="metric"><label>Average 24h Views</label><div class="val num">${summary.average24hViews == null ? "—" : fmt(summary.average24hViews)}</div><div class="sec">only experiments with entered results</div></div>
       </div>
-      <div class="card" style="margin-top:12px">
-        <div class="card-h"><h2>Average 24h views by topic</h2></div>
-        <div class="chart">${bars([
-          ["Copy", 7420],
-          ["Risk", 9180],
-          ["AI", 4120],
-          ["Signals", 6800],
-        ])}</div>
+
+      <div class="grid2">
+        <div class="card">
+          <div class="card-h"><h2>Market Signals</h2><p>Persisted Discover research by topic.</p></div>
+          ${marketTopics.length
+            ? marketTopics.map((row) => `<div class="rank">
+                <span>${esc(row.topic)}</span>
+                <span>${fmt(row.videos)} videos</span>
+                <span>avg opp ${row.avgOpportunity == null ? "—" : Number(row.avgOpportunity).toFixed(1)}</span>
+                <span>${row.medianOutlier == null ? "baseline pending" : Number(row.medianOutlier).toFixed(1) + "× median outlier"}</span>
+              </div>`).join("")
+            : `<div class="empty"><p>No market topic signals yet. Run real Discover searches to build this side of the comparison.</p><button class="btn primary" data-go="/discover">Open Discover</button></div>`}
+        </div>
+
+        <div class="card">
+          <div class="card-h"><h2>Christina Signals</h2><p>What your own recorded experiments currently say.</p></div>
+          ${creatorSignals.length
+            ? creatorSignals.map((row) => `<div class="rank">
+                <span>${esc(row.topic)}</span>
+                <span>${fmt(row.experiments)} experiment${Number(row.experiments) === 1 ? "" : "s"}</span>
+                <span>GO ${fmt(row.GO || 0)} · TEST ${fmt(row.TEST || 0)} · HOLD ${fmt(row.HOLD || 0)}</span>
+                <span>${row.avg24hViews == null ? "24h result pending" : "avg " + fmt(row.avg24hViews) + " views / 24h"}</span>
+              </div>`).join("")
+            : `<div class="empty"><p>No creator learning signal yet. Publish an experiment and record its real result to build Christina-specific evidence.</p><button class="btn primary" data-go="/lab">Open Experiments</button></div>`}
+        </div>
       </div>`;
-  }
-  function bars(rows) {
-    const m = Math.max(...rows.map((r) => r[1]));
-    return rows
-      .map(
-        (r) =>
-          `<div style="display:flex;align-items:center;gap:8px;padding:4px 14px;font-size:12px"><span style="width:70px">${r[0]}</span><div style="height:10px;background:#2a3d63;width:${(r[1] / m) * 70}%"></div><span class="num">${fmt(r[1])}</span></div>`
-      )
-      .join("");
   }
 
   function watchlists() {
     return `
-      <p class="sub">Channels and topics worth scanning again.</p>
-      <div class="tabs">
-        <button class="btn ${state.watchTab === "channels" ? "primary" : ""}" data-tab="channels">Channels</button>
-        <button class="btn ${state.watchTab === "topics" ? "primary" : ""}" data-tab="topics">Topics</button>
-      </div>
-      ${
-        state.watchTab === "channels"
-          ? `<div class="card">${[
-              ["SignalDesk", "84K", 3, 2, "14.5K", "Copy trading 6.8×", "Watching"],
-              ["BuildFast", "61K", 4, 3, "17.6K", "AI 24h 8.4×", "Hot"],
-              ["RiskDesk", "121K", 2, 1, "16.6K", "Mistakes 2.4×", "Steady"],
-            ]
-              .map(
-                (r) => `<div class="opp" style="grid-template-columns:40px 1fr">
-                <img class="avatar" src="https://api.dicebear.com/7.x/identicon/svg?seed=${r[0]}" alt="${r[0]} channel avatar" />
-                <div><div class="t">${r[0]}</div><div class="meta">${r[1]} subs · ${r[2]} recent uploads · ${r[3]} outliers · baseline ${r[4]} · ${r[5]} · ${r[6]}</div></div>
-              </div>`
-              )
-              .join("")}</div>`
-          : `<div class="card">${[
-              ["Copy Trading", 18, 5, "High", "2h ago"],
-              ["AI building", 22, 7, "Extreme", "1h ago"],
-              ["Creator growth", 14, 4, "High", "4h ago"],
-            ]
-              .map((r) => `<div class="rank"><span>${r[0]}</span><span>${r[1]} analyzed</span><span>${r[2]} outliers</span><span>${r[3]} · ${r[4]}</span></div>`)
-              .join("")}</div>`
-      }`;
+      <p class="sub">Watchlists will contain only channels and topics you explicitly save from real research.</p>
+      <div class="empty">
+        <h3>No persisted watchlist items yet.</h3>
+        <p>The old VibeFlow example channels and topic counters have been removed. When watchlist persistence is implemented, real saved items will appear here.</p>
+        <button class="btn primary" data-go="/discover">Open Discover</button>
+      </div>`;
   }
 
   function settings() {
@@ -1756,15 +1742,14 @@
       </div>
       <div class="card" style="padding:14px;margin-bottom:12px">
         <h2 style="font-size:14px">YouTube Data API</h2>
-        <p class="meta">Status: ${state.connected ? "Connected (demo)" : "Not connected"}</p>
-        <p>Connect YouTube later to retrieve real research data.</p>
-        <button class="btn primary" id="yt1">${state.connected ? "Disconnect" : "Connect"}</button>
+        <p class="meta">Status: ${state.youtubeConfigured ? "Configured on backend" : "Not configured"}</p>
+        <p>${state.youtubeConfigured ? "Real Discover searches use the server-side YouTube Data API key." : "Add YOUTUBE_API_KEY on the backend to enable real YouTube research."}</p>
       </div>
       <div class="card" style="padding:14px;margin-bottom:12px">
         <h2 style="font-size:14px">YouTube Creator Analytics</h2>
         <p class="meta">Status: Not connected</p>
         <p>Connect your own channel to automatically import experiment performance.</p>
-        <button class="btn" id="yt2">Connect</button>
+        <button class="btn" type="button" disabled>Not connected yet</button>
       </div>
       <div class="card" style="padding:14px;margin-bottom:12px">
         <h2 style="font-size:14px">Google Docs cloud upload</h2>
@@ -1772,7 +1757,7 @@
         <p>Convert idea DOCX/TXT/Markdown attachments into editable Google Docs in your own Drive. Christina Lab requests only the <code>drive.file</code> scope, so it can access files it creates rather than your whole Drive.</p>
         ${googleDocsConfigured()
           ? `<button class="btn primary" id="googleConnect">Connect Google Drive</button>`
-          : `<p class="meta">One-time setup: add <code>GOOGLE_OAUTH_CLIENT_ID</code> on Render and authorize <code>https://christina-lab.onrender.com</code> as a JavaScript origin.</p>`}
+          : `<p class="meta">One-time setup: add <code>GOOGLE_OAUTH_CLIENT_ID</code> to the deployed service and authorize the live Christina Lab origin as a JavaScript origin.</p>`}
       </div>
       <div class="card" style="padding:14px;margin-bottom:12px">
         <h2 style="font-size:14px">Creator Agent</h2>
@@ -1890,12 +1875,6 @@
     document.querySelectorAll("[data-view]").forEach((b) => {
       b.onclick = () => {
         state.savedView = b.dataset.view;
-        render();
-      };
-    });
-    document.querySelectorAll("[data-tab]").forEach((b) => {
-      b.onclick = () => {
-        state.watchTab = b.dataset.tab;
         render();
       };
     });
@@ -2029,12 +2008,6 @@
         toast(error?.message || "Could not save experiment result");
       }
     });
-    document.getElementById("yt1")?.addEventListener("click", () => {
-      state.connected = !state.connected;
-      toast(state.connected ? "YouTube connected (demo)" : "Disconnected");
-      render();
-    });
-    document.getElementById("yt2")?.addEventListener("click", () => toast("Creator Analytics stays a placeholder in this demo"));
     document.getElementById("googleConnect")?.addEventListener("click", async () => {
       try {
         await ensureGoogleAccessToken();
