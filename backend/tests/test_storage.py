@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
+from backend.app.migrations import _migration_4_prune_legacy_unsaved_research
 from backend.app.storage import SnapshotStore
 from backend.app.youtube import _video_classification
 
@@ -861,3 +862,69 @@ def test_explicit_experiment_status_can_override_inherited_status(tmp_path):
     )
 
     assert experiment["status"] == "Draft"
+
+
+
+def test_legacy_cleanup_preserves_saved_and_idea_linked_research(tmp_path):
+    db = tmp_path / "christina_lab.sqlite3"
+    store = SnapshotStore(f"sqlite:///{db}")
+    observed = datetime(2026, 9, 24, 12, 0, tzinfo=timezone.utc)
+
+    rows = [
+        ("saved-video", "Saved research"),
+        ("idea-video", "Idea source"),
+        ("throwaway-video", "Temporary candidate"),
+    ]
+    for video_id, title in rows:
+        store.record_snapshots(
+            [
+                _video(
+                    video_id=video_id,
+                    channel_id=f"channel-{video_id}",
+                    title=title,
+                    published_at=observed - timedelta(hours=12),
+                    content_type="Long-form",
+                    views=1000,
+                )
+            ],
+            observed_at=observed,
+            min_interval_minutes=0,
+        )
+        store.record_analyses(
+            [
+                {
+                    "id": video_id,
+                    "opportunity": 70,
+                    "outlier": 2.0,
+                    "baseline": 500,
+                    "baselineMethod": "test",
+                    "baselineSampleSize": 4,
+                    "viewsDay": 2000,
+                    "engagement": 5.0,
+                    "viewsSub": 0.5,
+                }
+            ],
+            topic="cleanup test",
+            observed_at=observed,
+        )
+
+    store.save_research("saved-video", why="Keep me")
+    idea = store.create_idea(source_video_id="idea-video", title="Keep my source")
+    store.save_idea_document(
+        idea["id"],
+        kind="script",
+        filename="script.md",
+        content_type="text/markdown",
+        content=b"keep document",
+    )
+    store.create_experiment(idea_id=idea["id"], status="Ready")
+
+    with store._connect() as conn:
+        _migration_4_prune_legacy_unsaved_research(conn)
+
+    assert store.stats()["videosTracked"] == 2
+    assert store.video_snapshots("throwaway-video") == []
+    assert len(store.list_saved_research()) == 1
+    assert store.get_idea(idea["id"])["sourceVideoId"] == "idea-video"
+    assert store.get_idea(idea["id"])["documentCount"] == 1
+    assert store.workflow_summary()["summary"]["experiments"] == 1
