@@ -287,6 +287,70 @@ PACKAGE_SCHEMA: dict[str, Any] = {
         "researchBrief": {"type": "string"},
         "script": {"type": "string"},
         "productionBlueprint": {"type": "string"},
+        "renderManifest": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "video": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {
+                        "aspectRatio": {"type": "string"},
+                        "targetDurationSeconds": {"type": "integer"},
+                        "style": {"type": "string"},
+                        "narrationMode": {"type": "string"},
+                        "captions": {"type": "boolean"},
+                    },
+                    "required": [
+                        "aspectRatio",
+                        "targetDurationSeconds",
+                        "style",
+                        "narrationMode",
+                        "captions",
+                    ],
+                },
+                "scenes": {
+                    "type": "array",
+                    "minItems": 6,
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "id": {"type": "string"},
+                            "start": {"type": "integer"},
+                            "end": {"type": "integer"},
+                            "narrativeJob": {"type": "string"},
+                            "narrationIntent": {"type": "string"},
+                            "visualModes": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                            },
+                            "assets": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                            },
+                            "onScreenText": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                            },
+                            "captureRequest": {"type": "string"},
+                        },
+                        "required": [
+                            "id",
+                            "start",
+                            "end",
+                            "narrativeJob",
+                            "narrationIntent",
+                            "visualModes",
+                            "assets",
+                            "onScreenText",
+                            "captureRequest",
+                        ],
+                    },
+                },
+            },
+            "required": ["video", "scenes"],
+        },
         "thumbnailConcept": {"type": "string"},
         "description": {"type": "string"},
         "cta": {"type": "string"},
@@ -296,6 +360,7 @@ PACKAGE_SCHEMA: dict[str, Any] = {
         "researchBrief",
         "script",
         "productionBlueprint",
+        "renderManifest",
         "thumbnailConcept",
         "description",
         "cta",
@@ -317,7 +382,9 @@ Rules:
 - Use reference videos for pattern learning, not copying. Never reproduce another creator's script.
 - Prefer a story: problem -> decision -> proof -> benefit.
 - Keep the creator's decision human: research can recommend angles, but the user chooses before a full package is generated.
-- Write production material in clear English and make it practical for a faceless video using the creator's own voice.
+- Write production material in clear English and make it practical for a faceless video. Narration may be the creator's own voice or an AI-TTS draft unless the user's goal says otherwise.
+- Treat bold packaging as a hypothesis to test, not as permission to invent evidence. The title/thumbnail may create curiosity, but the body must earn the click with real proof.
+- Never fabricate screenshots, code, terminal results, test counts, recruiter reactions, hiring statistics, or product behavior.
 """
 
 
@@ -452,15 +519,72 @@ SCRIPT requirements:
 - do not invent facts not present in the repo/research context.
 
 PRODUCTION BLUEPRINT requirements:
-- target length and format;
-- story structure and pacing table in Markdown;
-- exact footage/screen-recording checklist;
-- editing/retention notes;
-- thumbnail concept;
-- pre-publish checklist;
-- upload package.
+Build a Video Builder-ready blueprint, not a generic checklist. It must include these sections in this order:
 
-The output should be directly useful as a draft that the creator can edit, not a high-level outline.
+1. WORKING PACKAGING
+- primary title, alternate titles, thumbnail text and visual;
+- target length, aspect ratio, presentation style and channel frame.
+
+2. VIEWER PROMISE
+- state exactly what the click promises;
+- explain what the video must prove to earn that click;
+- add a guardrail against unsupported claims.
+
+3. ASSET RULES
+Classify every visual as one of:
+- REAL_PROJECT_ASSET
+- REAL_CAPTURE_REQUIRED
+- GENERATED_GRAPHIC
+- AI_BROLL_OPTIONAL
+Prefer real project evidence over generated footage.
+Only call a repository asset VERIFIED when its exact path exists in PUBLIC REPOSITORY CONTEXT. Never invent file paths.
+
+4. VERIFIED / REQUIRED ASSETS
+- list relevant screenshots, code files, tests and media paths that actually exist in repo context;
+- separately list footage that still needs a truthful real capture.
+
+5. SCENE-BY-SCENE PRODUCTION PLAN
+Use a Markdown table with:
+Scene | Time | Narrative Job | Narration Intent | Visual Source | Visual Direction | On-Screen Text
+Create enough scenes for the requested duration. The first visual proof should appear within roughly 8 seconds for long-form content.
+
+6. NARRATION DRAFT BY SCENE
+- give the purpose and draft narration for each major scene;
+- keep it consistent with the full SCRIPT;
+- technical detail must support the story rather than become a tutorial.
+
+7. EDITING & RETENTION RULES
+- pacing, cut frequency, code readability, captions, music, section headers and rules for AI footage.
+
+8. PROMISE / CLICKBAIT AUDIT
+- quote/summarize the title + thumbnail promise;
+- list concrete script obligations;
+- mark which obligations are supported by repository/research evidence;
+- flag anything that would require external evidence or real capture;
+- do NOT automatically weaken bold packaging if the body can support it.
+
+9. VIDEO BUILDER RENDER MANIFEST
+- explain how the accompanying structured renderManifest should be used;
+- every scene in renderManifest must correspond to the production plan;
+- visualModes must use only: repo_asset, repo_file, real_capture_required, generated_graphic, ai_broll_optional;
+- assets must be exact repo paths when repo-backed;
+- captureRequest must be non-empty only when truthful live footage is required.
+
+10. PRODUCTION CHECKLIST + UPLOAD PACKAGE + DEFINITION OF DONE
+- what can be generated automatically;
+- what needs real capture;
+- human review checks;
+- final title, thumbnail, description opening, CTA and tags;
+- definition of done for a render-ready video.
+
+RENDER MANIFEST requirements:
+- produce a machine-readable scene plan for a future Christina Lab Video Builder;
+- use seconds for start/end;
+- scenes must be chronological, non-overlapping, and cover the intended video;
+- never put invented repo paths in assets;
+- if a visual cannot be sourced truthfully, mark it real_capture_required or generated_graphic instead of fabricating it.
+
+The output should be directly useful as a production draft AND as input to an automated renderer, not a high-level outline.
 """
 
     result, provider_attempt = await _structured_response(
@@ -468,7 +592,7 @@ The output should be directly useful as a draft that the creator can edit, not a
         prompt=prompt,
         schema_name="creator_agent_package",
         schema=PACKAGE_SCHEMA,
-        max_output_tokens=10000,
+        max_output_tokens=14000,
     )
     return {
         **result,
