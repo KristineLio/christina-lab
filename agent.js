@@ -139,7 +139,10 @@
       html += '<div class="card agent-result" style="margin-top:12px;padding:14px">';
       html += '<span class="badge strong">Package created</span>';
       html += '<h2 style="margin:8px 0 6px">' + esc(result.idea && result.idea.title || "Creator package") + '</h2>';
-      html += '<p class="meta">Saved as a Draft idea with ' + (result.documents || []).length + ' attached Markdown documents · ' + esc(result.provider || provider) + ' · ' + esc(result.model || model) + '.</p>';
+      html += '<p class="meta">Saved as a Draft idea with ' + (result.documents || []).length + ' attached production files · ' + esc(result.provider || provider) + ' · ' + esc(result.model || model) + '.</p>';
+      if (result.videoBuilderReady) {
+        html += '<div class="badge strong" style="margin-top:8px">Video Builder ready · scene manifest included</div>';
+      }
       html += '<div class="grid2" style="margin-top:12px"><div><b>Thumbnail</b><p class="meta">' + esc(result.thumbnailConcept) + '</p></div>';
       html += '<div><b>CTA</b><p class="meta">' + esc(result.cta) + '</p></div></div>';
       html += '<div class="actions" style="margin-top:12px"><button class="btn primary" data-go="/ideas">Open Ideas</button>';

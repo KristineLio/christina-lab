@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import json
 import binascii
 import os
 import secrets
@@ -579,12 +580,28 @@ async def creator_agent_package(payload: CreatorAgentPackageRequest) -> dict:
             )
         )
 
+    render_manifest = package.get("renderManifest")
+    if isinstance(render_manifest, dict):
+        docs.append(
+            snapshot_store.save_idea_document(
+                int(idea["id"]),
+                kind="plan",
+                filename=f"{safe_slug}-render-manifest.json",
+                content_type="application/json; charset=utf-8",
+                content=(
+                    json.dumps(render_manifest, ensure_ascii=False, indent=2) + "\n"
+                ).encode("utf-8"),
+            )
+        )
+
     return {
         "idea": idea,
         "documents": docs,
         "thumbnailConcept": package.get("thumbnailConcept", ""),
         "description": package.get("description", ""),
         "cta": package.get("cta", ""),
+        "renderManifest": package.get("renderManifest"),
+        "videoBuilderReady": bool(package.get("renderManifest")),
         "provider": package.get("_agentProvider") or creator_agent_provider(),
         "model": package.get("_agentModel") or creator_agent_model(),
     }
