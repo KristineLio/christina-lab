@@ -1,4 +1,5 @@
 from backend.app.ai_provider import (
+    GEMINI_INTERACTIONS_URL,
     _extract_gemini_text,
     _gemini_schema,
     configured_providers,
@@ -102,3 +103,7 @@ def test_gemini_schema_removes_additional_properties_recursively():
     assert "additionalProperties" not in cleaned
     assert "additionalProperties" not in cleaned["properties"]["item"]
     assert cleaned["required"] == ["item"]
+
+
+def test_gemini_interactions_uses_stable_v1_endpoint():
+    assert GEMINI_INTERACTIONS_URL == "https://generativelanguage.googleapis.com/v1/interactions"
