@@ -8,7 +8,7 @@ from typing import Any
 import httpx
 
 
-GEMINI_INTERACTIONS_URL = "https://generativelanguage.googleapis.com/v1beta/interactions"
+GEMINI_INTERACTIONS_URL = "https://generativelanguage.googleapis.com/v1/interactions"
 GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
 OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions"
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
