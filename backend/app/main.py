@@ -231,6 +231,7 @@ async def public_config() -> dict:
     # OAuth client IDs are public identifiers. Secrets/tokens never belong in
     # this endpoint or in the browser bundle.
     return {
+        "youtubeConfigured": bool(os.getenv("YOUTUBE_API_KEY")),
         "googleOAuthClientId": os.getenv("GOOGLE_OAUTH_CLIENT_ID", "").strip(),
         "googleDriveScope": "https://www.googleapis.com/auth/drive.file",
         "creatorAgentConfigured": creator_agent_configured(),
