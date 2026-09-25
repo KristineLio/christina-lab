@@ -315,12 +315,54 @@ def _migration_5_private_alpha_workspaces(db: DatabaseConnection) -> None:
     )
 
 
+def _migration_6_workspace_market_evidence(db: DatabaseConnection) -> None:
+    """Scope public-observation history to creator workspaces.
+
+    Video metadata stays shared because it is public YouTube metadata. Snapshot
+    history, Discover analyses/search topics, growth history and pattern inputs
+    are creator-specific evidence and therefore receive a workspace_id.
+    Existing observations belong to the migrated owner workspace.
+    """
+
+    snapshot_columns = db.columns("video_snapshots")
+    if "workspace_id" not in snapshot_columns:
+        db.execute(
+            "ALTER TABLE video_snapshots ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'owner'"
+        )
+
+    analysis_columns = db.columns("video_analyses")
+    if "workspace_id" not in analysis_columns:
+        db.execute(
+            "ALTER TABLE video_analyses ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'owner'"
+        )
+
+    db.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_snapshots_workspace_video_time
+        ON video_snapshots(workspace_id, video_id, observed_at)
+        """
+    )
+    db.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_analyses_workspace_video_time
+        ON video_analyses(workspace_id, video_id, observed_at)
+        """
+    )
+    db.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_analyses_workspace_topic
+        ON video_analyses(workspace_id, topic, observed_at)
+        """
+    )
+
+
 MIGRATIONS: tuple[tuple[int, str, Callable[[DatabaseConnection], None]], ...] = (
     (1, "base_schema", _migration_1_base_schema),
     (2, "video_metadata", _migration_2_video_metadata),
     (3, "document_cloud_metadata", _migration_3_document_cloud_metadata),
     (4, "prune_legacy_unsaved_research", _migration_4_prune_legacy_unsaved_research),
     (5, "private_alpha_workspaces", _migration_5_private_alpha_workspaces),
+    (6, "workspace_market_evidence", _migration_6_workspace_market_evidence),
 )
 
 
