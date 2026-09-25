@@ -1071,7 +1071,12 @@ class SnapshotStore:
             item["content"] = bytes(row["content"])
         return item
 
-    def _idea_row(self, db: DatabaseConnection, idea_id: int) -> CompatRow | None:
+    def _idea_row(
+        self,
+        db: DatabaseConnection,
+        idea_id: int,
+        workspace_id: str = "owner",
+    ) -> CompatRow | None:
         return db.execute(
             """
             SELECT
@@ -1082,9 +1087,9 @@ class SnapshotStore:
                     WHERE d.idea_id = i.id
                 ) AS document_count
             FROM ideas i
-            WHERE i.id = ?
+            WHERE i.id = ? AND i.workspace_id = ?
             """,
-            (idea_id,),
+            (idea_id, workspace_id),
         ).fetchone()
 
     def create_idea(
@@ -1101,6 +1106,7 @@ class SnapshotStore:
         notes: str = "",
         priority: str = "Med",
         status: str = "Draft",
+        workspace_id: str = "owner",
     ) -> dict:
         now = _iso(_utc_now())
         clean_title = str(title or "").strip()
@@ -1119,12 +1125,13 @@ class SnapshotStore:
             cursor = db.execute(
                 """
                 INSERT INTO ideas (
-                    source_video_id, title, hook, topic, content_type, angle,
+                    workspace_id, source_video_id, title, hook, topic, content_type, angle,
                     audience, hypothesis, notes, priority, status, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
+                    workspace_id,
                     source_video_id,
                     clean_title,
                     hook,
@@ -1140,10 +1147,10 @@ class SnapshotStore:
                     now,
                 ),
             )
-            row = self._idea_row(db, int(cursor.lastrowid))
+            row = self._idea_row(db, int(cursor.lastrowid), workspace_id)
             return self._serialize_idea(row)
 
-    def list_ideas(self) -> list[dict]:
+    def list_ideas(self, *, workspace_id: str = "owner") -> list[dict]:
         with self._connect() as db:
             rows = db.execute(
                 """
@@ -1155,17 +1162,25 @@ class SnapshotStore:
                         WHERE d.idea_id = i.id
                     ) AS document_count
                 FROM ideas i
+                WHERE i.workspace_id = ?
                 ORDER BY i.updated_at DESC, i.id DESC
-                """
+                """,
+                (workspace_id,),
             ).fetchall()
         return [self._serialize_idea(row) for row in rows]
 
-    def get_idea(self, idea_id: int) -> dict | None:
+    def get_idea(self, idea_id: int, *, workspace_id: str = "owner") -> dict | None:
         with self._connect() as db:
-            row = self._idea_row(db, idea_id)
+            row = self._idea_row(db, idea_id, workspace_id)
         return self._serialize_idea(row) if row else None
 
-    def update_idea(self, idea_id: int, changes: dict) -> dict | None:
+    def update_idea(
+        self,
+        idea_id: int,
+        changes: dict,
+        *,
+        workspace_id: str = "owner",
+    ) -> dict | None:
         allowed = {
             "title": "title",
             "hook": "hook",
@@ -1186,20 +1201,20 @@ class SnapshotStore:
                 values.append(changes[key])
 
         if not updates:
-            return self.get_idea(idea_id)
+            return self.get_idea(idea_id, workspace_id=workspace_id)
 
         updates.append("updated_at = ?")
         values.append(_iso(_utc_now()))
-        values.append(idea_id)
+        values.extend([idea_id, workspace_id])
 
         with self._connect() as db:
             cursor = db.execute(
-                f"UPDATE ideas SET {', '.join(updates)} WHERE id = ?",
+                f"UPDATE ideas SET {', '.join(updates)} WHERE id = ? AND workspace_id = ?",
                 values,
             )
             if cursor.rowcount == 0:
                 return None
-            row = self._idea_row(db, idea_id)
+            row = self._idea_row(db, idea_id, workspace_id)
             return self._serialize_idea(row)
 
     def save_idea_document(
