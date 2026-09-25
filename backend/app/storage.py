@@ -533,7 +533,11 @@ class SnapshotStore:
             for row in rows
         ]
 
-    def _latest_analysis_rows(self) -> list[CompatRow]:
+    def _latest_analysis_rows(
+        self,
+        *,
+        workspace_id: str = "owner",
+    ) -> list[CompatRow]:
         with self._connect() as db:
             return db.execute(
                 """
@@ -555,20 +559,28 @@ class SnapshotStore:
                 JOIN (
                     SELECT video_id, MAX(id) AS id
                     FROM video_analyses
+                    WHERE workspace_id = ?
                     GROUP BY video_id
                 ) latest ON latest.id = a.id
                 JOIN videos v ON v.video_id = a.video_id
                 LEFT JOIN video_snapshots s ON s.id = (
                     SELECT s2.id
                     FROM video_snapshots s2
-                    WHERE s2.video_id = a.video_id
+                    WHERE s2.workspace_id = ?
+                      AND s2.video_id = a.video_id
                     ORDER BY s2.observed_at DESC
                     LIMIT 1
                 )
-                """
+                WHERE a.workspace_id = ?
+                """,
+                (workspace_id, workspace_id, workspace_id),
             ).fetchall()
 
-    def _growth_rows(self) -> list[dict]:
+    def _growth_rows(
+        self,
+        *,
+        workspace_id: str = "owner",
+    ) -> list[dict]:
         with self._connect() as db:
             videos = db.execute(
                 """
@@ -583,9 +595,11 @@ class SnapshotStore:
                     MAX(s.observed_at) AS last_observed
                 FROM videos v
                 JOIN video_snapshots s ON s.video_id = v.video_id
+                WHERE s.workspace_id = ?
                 GROUP BY v.video_id
                 HAVING COUNT(s.id) >= 2
-                """
+                """,
+                (workspace_id,),
             ).fetchall()
 
             results = []
@@ -594,21 +608,21 @@ class SnapshotStore:
                     """
                     SELECT observed_at, age_hours, views
                     FROM video_snapshots
-                    WHERE video_id = ?
+                    WHERE workspace_id = ? AND video_id = ?
                     ORDER BY observed_at ASC
                     LIMIT 1
                     """,
-                    (video["video_id"],),
+                    (workspace_id, video["video_id"]),
                 ).fetchone()
                 last = db.execute(
                     """
                     SELECT observed_at, age_hours, views
                     FROM video_snapshots
-                    WHERE video_id = ?
+                    WHERE workspace_id = ? AND video_id = ?
                     ORDER BY observed_at DESC
                     LIMIT 1
                     """,
-                    (video["video_id"],),
+                    (workspace_id, video["video_id"]),
                 ).fetchone()
                 if not first or not last:
                     continue
@@ -639,10 +653,14 @@ class SnapshotStore:
                 )
         return results
 
-    def dashboard_summary(self) -> dict:
-        stats = self.stats()
-        analyses = self._latest_analysis_rows()
-        growth = sorted(self._growth_rows(), key=lambda row: row["actualViewsHour"], reverse=True)
+    def dashboard_summary(self, *, workspace_id: str = "owner") -> dict:
+        stats = self.stats(workspace_id=workspace_id)
+        analyses = self._latest_analysis_rows(workspace_id=workspace_id)
+        growth = sorted(
+            self._growth_rows(workspace_id=workspace_id),
+            key=lambda row: row["actualViewsHour"],
+            reverse=True,
+        )
 
         top_opportunities = sorted(
             [row for row in analyses if row["opportunity"] is not None],
@@ -652,11 +670,23 @@ class SnapshotStore:
 
         with self._connect() as db:
             analyzed_candidates = int(
-                db.execute("SELECT COUNT(DISTINCT video_id) FROM video_analyses").fetchone()[0]
+                db.execute(
+                    """
+                    SELECT COUNT(DISTINCT video_id)
+                    FROM video_analyses
+                    WHERE workspace_id = ?
+                    """,
+                    (workspace_id,),
+                ).fetchone()[0]
             )
             topics_tracked = int(
                 db.execute(
-                    "SELECT COUNT(DISTINCT topic) FROM video_analyses WHERE TRIM(topic) <> ''"
+                    """
+                    SELECT COUNT(DISTINCT topic)
+                    FROM video_analyses
+                    WHERE workspace_id = ? AND TRIM(topic) <> ''
+                    """,
+                    (workspace_id,),
                 ).fetchone()[0]
             )
             historical_ready = int(
@@ -664,17 +694,22 @@ class SnapshotStore:
                     """
                     SELECT COUNT(DISTINCT video_id)
                     FROM video_analyses
-                    WHERE baseline_method = 'historical-snapshot-median'
-                    """
+                    WHERE workspace_id = ?
+                      AND baseline_method = 'historical-snapshot-median'
+                    """,
+                    (workspace_id,),
                 ).fetchone()[0]
             )
             content_rows = db.execute(
                 """
-                SELECT content_type, COUNT(*) AS count
-                FROM videos
-                GROUP BY content_type
+                SELECT v.content_type, COUNT(DISTINCT v.video_id) AS count
+                FROM videos v
+                JOIN video_snapshots s ON s.video_id = v.video_id
+                WHERE s.workspace_id = ?
+                GROUP BY v.content_type
                 ORDER BY count DESC
-                """
+                """,
+                (workspace_id,),
             ).fetchall()
 
         return {
@@ -720,9 +755,9 @@ class SnapshotStore:
             },
         }
 
-    def patterns_summary(self) -> dict:
-        latest_analyses = self._latest_analysis_rows()
-        growth_rows = self._growth_rows()
+    def patterns_summary(self, *, workspace_id: str = "owner") -> dict:
+        latest_analyses = self._latest_analysis_rows(workspace_id=workspace_id)
+        growth_rows = self._growth_rows(workspace_id=workspace_id)
 
         # Search-topic patterns use the latest observation for each video/topic pair.
         with self._connect() as db:
@@ -733,10 +768,12 @@ class SnapshotStore:
                 JOIN (
                     SELECT video_id, topic, MAX(id) AS id
                     FROM video_analyses
-                    WHERE TRIM(topic) <> ''
+                    WHERE workspace_id = ? AND TRIM(topic) <> ''
                     GROUP BY video_id, topic
                 ) latest ON latest.id = a.id
-                """
+                WHERE a.workspace_id = ?
+                """,
+                (workspace_id, workspace_id),
             ).fetchall()
 
             video_rows = db.execute(
@@ -750,14 +787,16 @@ class SnapshotStore:
                     s.likes,
                     s.comments
                 FROM videos v
-                LEFT JOIN video_snapshots s ON s.id = (
+                JOIN video_snapshots s ON s.id = (
                     SELECT s2.id
                     FROM video_snapshots s2
-                    WHERE s2.video_id = v.video_id
+                    WHERE s2.workspace_id = ?
+                      AND s2.video_id = v.video_id
                     ORDER BY s2.observed_at DESC
                     LIMIT 1
                 )
-                """
+                """,
+                (workspace_id,),
             ).fetchall()
 
         topics: dict[str, dict] = {}
@@ -890,7 +929,7 @@ class SnapshotStore:
         return {
             "generatedAt": _iso(_utc_now()),
             "dataset": {
-                **self.stats(),
+                **self.stats(workspace_id=workspace_id),
                 "analyzedCandidates": len(latest_analyses),
                 "growthPairs": len(growth_rows),
                 "creativePatternCandidates": len(latest_analyses),
