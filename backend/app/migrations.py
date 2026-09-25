@@ -187,7 +187,17 @@ def _migration_4_prune_legacy_unsaved_research(db: DatabaseConnection) -> None:
     PostgreSQL even if foreign-key cascade settings differ.
     """
 
-    removable_video_ids = """
+    workspace_saved_guard = ""
+    if db.columns("workspace_saved_research"):
+        workspace_saved_guard = """
+        AND NOT EXISTS (
+            SELECT 1
+            FROM workspace_saved_research wsr
+            WHERE wsr.video_id = v.video_id
+        )
+        """
+
+    removable_video_ids = f"""
         SELECT v.video_id
         FROM videos v
         WHERE NOT EXISTS (
@@ -195,6 +205,7 @@ def _migration_4_prune_legacy_unsaved_research(db: DatabaseConnection) -> None:
             FROM saved_research sr
             WHERE sr.video_id = v.video_id
         )
+        {workspace_saved_guard}
         AND NOT EXISTS (
             SELECT 1
             FROM ideas i
