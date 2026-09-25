@@ -254,6 +254,7 @@ class SnapshotStore:
         *,
         observed_at: datetime | None = None,
         min_interval_minutes: int = SNAPSHOT_MIN_INTERVAL_MINUTES,
+        workspace_id: str = "owner",
     ) -> int:
         observed_at = observed_at or _utc_now()
         observed_iso = _iso(observed_at)
@@ -312,11 +313,11 @@ class SnapshotStore:
                     """
                     SELECT observed_at
                     FROM video_snapshots
-                    WHERE video_id = ?
+                    WHERE workspace_id = ? AND video_id = ?
                     ORDER BY observed_at DESC
                     LIMIT 1
                     """,
-                    (video_id,),
+                    (workspace_id, video_id),
                 ).fetchone()
 
                 if latest:
@@ -328,11 +329,12 @@ class SnapshotStore:
                 db.execute(
                     """
                     INSERT INTO video_snapshots (
-                        video_id, observed_at, age_hours, views, likes, comments, subscribers
+                        workspace_id, video_id, observed_at, age_hours, views, likes, comments, subscribers
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
+                        workspace_id,
                         video_id,
                         observed_iso,
                         round(age_hours, 4),
@@ -352,6 +354,7 @@ class SnapshotStore:
         *,
         topic: str,
         observed_at: datetime | None = None,
+        workspace_id: str = "owner",
     ) -> int:
         """Persist derived candidate-level research signals from a Discover search."""
         observed_at = observed_at or _utc_now()
@@ -373,12 +376,13 @@ class SnapshotStore:
                 db.execute(
                     """
                     INSERT INTO video_analyses (
-                        video_id, observed_at, topic, opportunity, outlier, baseline,
+                        workspace_id, video_id, observed_at, topic, opportunity, outlier, baseline,
                         baseline_method, baseline_sample_size, views_day, engagement, views_sub
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
+                        workspace_id,
                         video_id,
                         observed_iso,
                         str(topic or "").strip(),
@@ -419,6 +423,7 @@ class SnapshotStore:
         target_age_hours: float,
         min_samples: int = 3,
         max_samples: int = 12,
+        workspace_id: str = "owner",
     ) -> dict:
         tolerance = self.age_tolerance_hours(target_age_hours)
         minimum_age = max(float(target_age_hours) - tolerance, 0.0)
@@ -437,7 +442,8 @@ class SnapshotStore:
                     v.published_at
                 FROM video_snapshots s
                 JOIN videos v ON v.video_id = s.video_id
-                WHERE v.channel_id = ?
+                WHERE s.workspace_id = ?
+                  AND v.channel_id = ?
                   AND v.content_type = ?
                   AND v.video_id <> ?
                   AND s.age_hours BETWEEN ? AND ?
@@ -445,6 +451,7 @@ class SnapshotStore:
                 ORDER BY v.published_at DESC, s.video_id, ABS(s.age_hours - ?) ASC
                 """,
                 (
+                    workspace_id,
                     channel_id,
                     content_type,
                     candidate_id,
@@ -495,17 +502,23 @@ class SnapshotStore:
             ],
         }
 
-    def video_snapshots(self, video_id: str, *, limit: int = 50) -> list[dict]:
+    def video_snapshots(
+        self,
+        video_id: str,
+        *,
+        limit: int = 50,
+        workspace_id: str = "owner",
+    ) -> list[dict]:
         with self._connect() as db:
             rows = db.execute(
                 """
                 SELECT observed_at, age_hours, views, likes, comments, subscribers
                 FROM video_snapshots
-                WHERE video_id = ?
+                WHERE workspace_id = ? AND video_id = ?
                 ORDER BY observed_at ASC
                 LIMIT ?
                 """,
-                (video_id, max(1, min(int(limit), 500))),
+                (workspace_id, video_id, max(1, min(int(limit), 500))),
             ).fetchall()
 
         return [
@@ -520,7 +533,11 @@ class SnapshotStore:
             for row in rows
         ]
 
-    def _latest_analysis_rows(self) -> list[CompatRow]:
+    def _latest_analysis_rows(
+        self,
+        *,
+        workspace_id: str = "owner",
+    ) -> list[CompatRow]:
         with self._connect() as db:
             return db.execute(
                 """
@@ -542,20 +559,28 @@ class SnapshotStore:
                 JOIN (
                     SELECT video_id, MAX(id) AS id
                     FROM video_analyses
+                    WHERE workspace_id = ?
                     GROUP BY video_id
                 ) latest ON latest.id = a.id
                 JOIN videos v ON v.video_id = a.video_id
                 LEFT JOIN video_snapshots s ON s.id = (
                     SELECT s2.id
                     FROM video_snapshots s2
-                    WHERE s2.video_id = a.video_id
+                    WHERE s2.workspace_id = ?
+                      AND s2.video_id = a.video_id
                     ORDER BY s2.observed_at DESC
                     LIMIT 1
                 )
-                """
+                WHERE a.workspace_id = ?
+                """,
+                (workspace_id, workspace_id, workspace_id),
             ).fetchall()
 
-    def _growth_rows(self) -> list[dict]:
+    def _growth_rows(
+        self,
+        *,
+        workspace_id: str = "owner",
+    ) -> list[dict]:
         with self._connect() as db:
             videos = db.execute(
                 """
@@ -570,9 +595,11 @@ class SnapshotStore:
                     MAX(s.observed_at) AS last_observed
                 FROM videos v
                 JOIN video_snapshots s ON s.video_id = v.video_id
+                WHERE s.workspace_id = ?
                 GROUP BY v.video_id
                 HAVING COUNT(s.id) >= 2
-                """
+                """,
+                (workspace_id,),
             ).fetchall()
 
             results = []
@@ -581,21 +608,21 @@ class SnapshotStore:
                     """
                     SELECT observed_at, age_hours, views
                     FROM video_snapshots
-                    WHERE video_id = ?
+                    WHERE workspace_id = ? AND video_id = ?
                     ORDER BY observed_at ASC
                     LIMIT 1
                     """,
-                    (video["video_id"],),
+                    (workspace_id, video["video_id"]),
                 ).fetchone()
                 last = db.execute(
                     """
                     SELECT observed_at, age_hours, views
                     FROM video_snapshots
-                    WHERE video_id = ?
+                    WHERE workspace_id = ? AND video_id = ?
                     ORDER BY observed_at DESC
                     LIMIT 1
                     """,
-                    (video["video_id"],),
+                    (workspace_id, video["video_id"]),
                 ).fetchone()
                 if not first or not last:
                     continue
@@ -626,10 +653,14 @@ class SnapshotStore:
                 )
         return results
 
-    def dashboard_summary(self) -> dict:
-        stats = self.stats()
-        analyses = self._latest_analysis_rows()
-        growth = sorted(self._growth_rows(), key=lambda row: row["actualViewsHour"], reverse=True)
+    def dashboard_summary(self, *, workspace_id: str = "owner") -> dict:
+        stats = self.stats(workspace_id=workspace_id)
+        analyses = self._latest_analysis_rows(workspace_id=workspace_id)
+        growth = sorted(
+            self._growth_rows(workspace_id=workspace_id),
+            key=lambda row: row["actualViewsHour"],
+            reverse=True,
+        )
 
         top_opportunities = sorted(
             [row for row in analyses if row["opportunity"] is not None],
@@ -639,11 +670,23 @@ class SnapshotStore:
 
         with self._connect() as db:
             analyzed_candidates = int(
-                db.execute("SELECT COUNT(DISTINCT video_id) FROM video_analyses").fetchone()[0]
+                db.execute(
+                    """
+                    SELECT COUNT(DISTINCT video_id)
+                    FROM video_analyses
+                    WHERE workspace_id = ?
+                    """,
+                    (workspace_id,),
+                ).fetchone()[0]
             )
             topics_tracked = int(
                 db.execute(
-                    "SELECT COUNT(DISTINCT topic) FROM video_analyses WHERE TRIM(topic) <> ''"
+                    """
+                    SELECT COUNT(DISTINCT topic)
+                    FROM video_analyses
+                    WHERE workspace_id = ? AND TRIM(topic) <> ''
+                    """,
+                    (workspace_id,),
                 ).fetchone()[0]
             )
             historical_ready = int(
@@ -651,17 +694,22 @@ class SnapshotStore:
                     """
                     SELECT COUNT(DISTINCT video_id)
                     FROM video_analyses
-                    WHERE baseline_method = 'historical-snapshot-median'
-                    """
+                    WHERE workspace_id = ?
+                      AND baseline_method = 'historical-snapshot-median'
+                    """,
+                    (workspace_id,),
                 ).fetchone()[0]
             )
             content_rows = db.execute(
                 """
-                SELECT content_type, COUNT(*) AS count
-                FROM videos
-                GROUP BY content_type
+                SELECT v.content_type, COUNT(DISTINCT v.video_id) AS count
+                FROM videos v
+                JOIN video_snapshots s ON s.video_id = v.video_id
+                WHERE s.workspace_id = ?
+                GROUP BY v.content_type
                 ORDER BY count DESC
-                """
+                """,
+                (workspace_id,),
             ).fetchall()
 
         return {
@@ -707,9 +755,9 @@ class SnapshotStore:
             },
         }
 
-    def patterns_summary(self) -> dict:
-        latest_analyses = self._latest_analysis_rows()
-        growth_rows = self._growth_rows()
+    def patterns_summary(self, *, workspace_id: str = "owner") -> dict:
+        latest_analyses = self._latest_analysis_rows(workspace_id=workspace_id)
+        growth_rows = self._growth_rows(workspace_id=workspace_id)
 
         # Search-topic patterns use the latest observation for each video/topic pair.
         with self._connect() as db:
@@ -720,10 +768,12 @@ class SnapshotStore:
                 JOIN (
                     SELECT video_id, topic, MAX(id) AS id
                     FROM video_analyses
-                    WHERE TRIM(topic) <> ''
+                    WHERE workspace_id = ? AND TRIM(topic) <> ''
                     GROUP BY video_id, topic
                 ) latest ON latest.id = a.id
-                """
+                WHERE a.workspace_id = ?
+                """,
+                (workspace_id, workspace_id),
             ).fetchall()
 
             video_rows = db.execute(
@@ -737,14 +787,16 @@ class SnapshotStore:
                     s.likes,
                     s.comments
                 FROM videos v
-                LEFT JOIN video_snapshots s ON s.id = (
+                JOIN video_snapshots s ON s.id = (
                     SELECT s2.id
                     FROM video_snapshots s2
-                    WHERE s2.video_id = v.video_id
+                    WHERE s2.workspace_id = ?
+                      AND s2.video_id = v.video_id
                     ORDER BY s2.observed_at DESC
                     LIMIT 1
                 )
-                """
+                """,
+                (workspace_id,),
             ).fetchall()
 
         topics: dict[str, dict] = {}
@@ -877,7 +929,7 @@ class SnapshotStore:
         return {
             "generatedAt": _iso(_utc_now()),
             "dataset": {
-                **self.stats(),
+                **self.stats(workspace_id=workspace_id),
                 "analyzedCandidates": len(latest_analyses),
                 "growthPairs": len(growth_rows),
                 "creativePatternCandidates": len(latest_analyses),
@@ -944,14 +996,16 @@ class SnapshotStore:
             LEFT JOIN video_snapshots s ON s.id = (
                 SELECT s2.id
                 FROM video_snapshots s2
-                WHERE s2.video_id = r.video_id
+                WHERE s2.workspace_id = r.workspace_id
+                  AND s2.video_id = r.video_id
                 ORDER BY s2.observed_at DESC
                 LIMIT 1
             )
             LEFT JOIN video_analyses a ON a.id = (
                 SELECT a2.id
                 FROM video_analyses a2
-                WHERE a2.video_id = r.video_id
+                WHERE a2.workspace_id = r.workspace_id
+                  AND a2.video_id = r.video_id
                 ORDER BY a2.id DESC
                 LIMIT 1
             )
@@ -1716,10 +1770,28 @@ class SnapshotStore:
             "learningSignals": learning_signals,
         }
 
-    def stats(self) -> dict:
+    def stats(self, *, workspace_id: str = "owner") -> dict:
         with self._connect() as db:
-            video_count = int(db.execute("SELECT COUNT(*) FROM videos").fetchone()[0])
-            snapshot_count = int(db.execute("SELECT COUNT(*) FROM video_snapshots").fetchone()[0])
+            video_count = int(
+                db.execute(
+                    """
+                    SELECT COUNT(DISTINCT video_id)
+                    FROM video_snapshots
+                    WHERE workspace_id = ?
+                    """,
+                    (workspace_id,),
+                ).fetchone()[0]
+            )
+            snapshot_count = int(
+                db.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM video_snapshots
+                    WHERE workspace_id = ?
+                    """,
+                    (workspace_id,),
+                ).fetchone()[0]
+            )
             multi_snapshot_videos = int(
                 db.execute(
                     """
@@ -1727,10 +1799,12 @@ class SnapshotStore:
                     FROM (
                         SELECT video_id
                         FROM video_snapshots
+                        WHERE workspace_id = ?
                         GROUP BY video_id
                         HAVING COUNT(*) >= 2
                     )
-                    """
+                    """,
+                    (workspace_id,),
                 ).fetchone()[0]
             )
 

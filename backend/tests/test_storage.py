@@ -1084,3 +1084,88 @@ def test_private_alpha_workspaces_isolate_creator_data(tmp_path):
         )
         is False
     )
+
+
+
+def test_workspace_market_evidence_isolated(tmp_path):
+    db = tmp_path / "christina_lab.sqlite3"
+    store = SnapshotStore(f"sqlite:///{db}")
+    observed = datetime(2026, 9, 25, 12, 0, tzinfo=timezone.utc)
+    tester_workspace = store.workspace_id_for_access_key("clw_" + "m" * 43)
+
+    video = _video(
+        video_id="market-video",
+        channel_id="market-channel",
+        title="Owner-only market signal",
+        published_at=observed - timedelta(hours=6),
+        views=1200,
+        likes=100,
+        comments=20,
+    )
+
+    store.record_snapshots(
+        [video],
+        observed_at=observed,
+        min_interval_minutes=0,
+        workspace_id="owner",
+    )
+    store.record_analyses(
+        [
+            {
+                "id": "market-video",
+                "opportunity": 88,
+                "outlier": 2.4,
+                "baseline": 500,
+                "baselineMethod": "test",
+                "baselineSampleSize": 4,
+                "viewsDay": 4800,
+                "engagement": 10.0,
+                "viewsSub": 1.2,
+            }
+        ],
+        topic="owner search topic",
+        observed_at=observed,
+        workspace_id="owner",
+    )
+
+    assert store.stats(workspace_id="owner")["videosTracked"] == 1
+    assert store.stats(workspace_id=tester_workspace) == {
+        "videosTracked": 0,
+        "snapshotsStored": 0,
+        "videosWithMultipleSnapshots": 0,
+    }
+    assert store.dashboard_summary(workspace_id=tester_workspace)["metrics"][
+        "analyzedCandidates"
+    ] == 0
+    tester_patterns = store.patterns_summary(workspace_id=tester_workspace)
+    assert tester_patterns["topics"] == []
+    assert tester_patterns["titleSignals"] == []
+
+    # Saving the same public video in a clean tester workspace must not leak
+    # the owner's private observation metrics or search topic.
+    store.save_research(
+        "market-video",
+        why="Tester chose the same public source",
+        workspace_id=tester_workspace,
+    )
+    tester_saved = store.list_saved_research(workspace_id=tester_workspace)[0]
+    assert tester_saved["views"] == 0
+    assert tester_saved["topic"] == ""
+
+    # Once the tester observes it, only the tester's own evidence appears.
+    tester_video = {**video, "views": 1500, "likes": 120, "comments": 25}
+    store.record_snapshots(
+        [tester_video],
+        observed_at=observed + timedelta(hours=1),
+        min_interval_minutes=0,
+        workspace_id=tester_workspace,
+    )
+    assert store.stats(workspace_id=tester_workspace)["videosTracked"] == 1
+    assert store.video_snapshots(
+        "market-video",
+        workspace_id=tester_workspace,
+    )[0]["views"] == 1500
+    assert store.video_snapshots(
+        "market-video",
+        workspace_id="owner",
+    )[0]["views"] == 1200
