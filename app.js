@@ -646,11 +646,94 @@
     toast((label || "Document") + " copied");
   }
 
+  function ideaProductionPlatform(doc, ideaId) {
+    const filename = String(doc?.filename || "").toLowerCase();
+    const prefix = "idea-" + String(ideaId) + "-";
+    if (!filename.startsWith(prefix) || !filename.endsWith(".md")) return "";
+    const platforms = [
+      ["youtube-shorts", "YouTube Shorts"],
+      ["tiktok", "TikTok"],
+      ["pinterest", "Pinterest"],
+      ["instagram", "Instagram"],
+    ];
+    const match = platforms.find(([slug]) => filename.startsWith(prefix + slug + "-"));
+    return match ? match[1] : "";
+  }
+
+  function latestIdeaProductionPlatform(documents, ideaId) {
+    const generated = documents
+      .filter((doc) => ideaProductionPlatform(doc, ideaId))
+      .slice()
+      .sort((a, b) => String(b.uploadedAt || "").localeCompare(String(a.uploadedAt || "")));
+    return generated.length ? ideaProductionPlatform(generated[0], ideaId) : "YouTube Shorts";
+  }
+
+  function isTextIdeaDocument(doc) {
+    return String(doc?.contentType || "").startsWith("text/") || /\.(md|txt)$/i.test(String(doc?.filename || ""));
+  }
+
+  function productionAssetMeta(kind) {
+    return {
+      script: {
+        title: "Script",
+        description: "Voiceover, dialogue and on-screen copy for the piece.",
+        openLabel: "Read script",
+        copyLabel: "Copy script",
+      },
+      plan: {
+        title: "Production Plan",
+        description: "Shots, timing, overlays, edit notes and definition of done.",
+        openLabel: "View plan",
+        copyLabel: "Copy plan",
+      },
+      video_prompt: {
+        title: "AI Video Prompt",
+        description: "Copy-paste-ready prompt for AI Studio / Veo.",
+        openLabel: "View prompt",
+        copyLabel: "Copy prompt",
+      },
+      photo_reference: {
+        title: "Photo Reference",
+        description: "Visual brief, real-capture direction and image-generation prompt.",
+        openLabel: "View brief",
+        copyLabel: "Copy image prompt",
+      },
+    }[kind] || {
+      title: "Document",
+      description: "Creative source material for this idea.",
+      openLabel: "Open",
+      copyLabel: "Copy",
+    };
+  }
+
+  function renderCreatorDocumentText(raw) {
+    const inline = (value) => esc(value)
+      .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+      .replace(/`([^`]+)`/g, "<code>$1</code>");
+    return String(raw || "")
+      .replace(/\r/g, "")
+      .split("\n")
+      .map((line) => {
+        const trimmed = line.trim();
+        if (!trimmed) return '<div class="creator-doc-space"></div>';
+        if (/^###\s+/.test(trimmed)) return "<h4>" + inline(trimmed.replace(/^###\s+/, "")) + "</h4>";
+        if (/^##\s+/.test(trimmed)) return "<h3>" + inline(trimmed.replace(/^##\s+/, "")) + "</h3>";
+        if (/^#\s+/.test(trimmed)) return "<h2>" + inline(trimmed.replace(/^#\s+/, "")) + "</h2>";
+        if (/^[-*]\s+/.test(trimmed)) return '<div class="creator-doc-bullet"><span>•</span><div>' + inline(trimmed.replace(/^[-*]\s+/, "")) + "</div></div>";
+        if (/^\d+\.\s+/.test(trimmed)) {
+          const match = trimmed.match(/^(\d+)\.\s+(.*)$/);
+          return '<div class="creator-doc-number"><span>' + esc(match?.[1] || "") + '.</span><div>' + inline(match?.[2] || trimmed) + "</div></div>";
+        }
+        return "<p>" + inline(trimmed) + "</p>";
+      })
+      .join("");
+  }
+
   async function openIdeaDocumentsModal(idea) {
     const m = $("modal");
     m.hidden = false;
-    m.innerHTML = `<div class="modal idea-modal">
-      <h2 style="margin:0 0 6px;font-size:16px">Idea documents</h2>
+    m.innerHTML = `<div class="modal idea-modal production-pack-modal">
+      <h2 style="margin:0 0 6px;font-size:16px">Production Pack</h2>
       <p class="meta" style="margin-top:0">${esc(idea.title)}</p>
       <div class="card" style="padding:14px"><div class="skel"></div><div class="skel"></div></div>
     </div>`;
@@ -660,11 +743,12 @@
 
     try {
       const payload = await fetchJson("/api/ideas/" + encodeURIComponent(idea.id) + "/documents");
-      renderIdeaDocumentsModal(idea, Array.isArray(payload.items) ? payload.items : []);
+      const items = Array.isArray(payload.items) ? payload.items : [];
+      renderIdeaDocumentsModal(idea, items, latestIdeaProductionPlatform(items, idea.id));
     } catch (error) {
-      m.innerHTML = `<div class="modal idea-modal">
-        <h2 style="margin:0 0 6px;font-size:16px">Idea documents</h2>
-        <p class="meta">${esc(error?.message || "Could not load documents.")}</p>
+      m.innerHTML = `<div class="modal idea-modal production-pack-modal">
+        <h2 style="margin:0 0 6px;font-size:16px">Production Pack</h2>
+        <p class="meta">${esc(error?.message || "Could not load production assets.")}</p>
         <div class="actions"><button class="btn ghost" id="cancelM">Close</button></div>
       </div>`;
       $("cancelM").onclick = () => (m.hidden = true);
@@ -675,22 +759,73 @@
     const m = $("modal");
     const kinds = {
       script: "Script",
-      plan: "Production Plan / PRD",
+      plan: "Production Plan",
       reference: "Reference",
-      video_prompt: "Video Prompt",
+      video_prompt: "AI Video Prompt",
       photo_reference: "Photo Reference",
       other: "Other",
     };
-    m.innerHTML = `<div class="modal idea-modal">
-      <h2 style="margin:0 0 6px;font-size:16px">Idea documents</h2>
-      <p class="meta" style="margin-top:0">Keep the creative source material for <b>${esc(idea.title)}</b> with the experiment.</p>
+    const productionKinds = ["script", "plan", "video_prompt", "photo_reference"];
+    const generatedDocs = documents.filter((doc) => ideaProductionPlatform(doc, idea.id));
+    const selectedGenerated = generatedDocs
+      .filter((doc) => ideaProductionPlatform(doc, idea.id) === selectedPlatform)
+      .slice()
+      .sort((a, b) => String(b.uploadedAt || "").localeCompare(String(a.uploadedAt || "")));
+    const latestByKind = {};
+    selectedGenerated.forEach((doc) => {
+      if (productionKinds.includes(doc.kind) && !latestByKind[doc.kind]) latestByKind[doc.kind] = doc;
+    });
+    const packDocs = productionKinds.map((kind) => latestByKind[kind]).filter(Boolean);
+    const additionalDocs = documents.filter((doc) => !ideaProductionPlatform(doc, idea.id));
+    const generatedPlatforms = [...new Set(generatedDocs.map((doc) => ideaProductionPlatform(doc, idea.id)).filter(Boolean))];
 
-      <section class="agent-production-docs">
+    const productionCard = (doc) => {
+      const meta = productionAssetMeta(doc.kind);
+      const googleAction = canConvertToGoogleDocs(doc)
+        ? doc.cloudUrl
+          ? `<a class="btn primary" href="${esc(doc.cloudUrl)}" target="_blank" rel="noopener">Open Google Doc ✓</a>`
+          : `<button class="btn" type="button" data-google-doc="${doc.id}">Create Google Doc</button>`
+        : "";
+      return `<article class="production-asset-card">
+        <div class="production-asset-main">
+          <div class="production-asset-kicker">${esc(selectedPlatform)} · ${esc(idea.type || "Content")}</div>
+          <h3>${esc(meta.title)}</h3>
+          <p>${esc(meta.description)}</p>
+          ${doc.cloudUploadedAt ? '<div class="production-sync-state">✓ Google Docs synced</div>' : ""}
+        </div>
+        <div class="production-asset-actions">
+          ${isTextIdeaDocument(doc) ? `<button class="btn primary" type="button" data-view-doc="${doc.id}">${esc(meta.openLabel)}</button>` : ""}
+          ${isTextIdeaDocument(doc) ? `<button class="btn" type="button" data-copy-doc="${doc.id}" data-copy-label="${esc(meta.title)}">${esc(meta.copyLabel)}</button>` : ""}
+          ${googleAction}
+          <details class="production-more">
+            <summary>More</summary>
+            <div class="production-more-menu">
+              <div class="production-file-name">${esc(doc.filename)}</div>
+              <a class="btn ghost" href="${API_BASE}/api/idea-documents/${doc.id}">Download file</a>
+              ${doc.cloudUrl && canConvertToGoogleDocs(doc) ? `<button class="btn ghost" type="button" data-google-doc="${doc.id}">Create new Google Doc</button>` : ""}
+              <button class="btn danger" type="button" data-delete-doc="${doc.id}">Delete</button>
+            </div>
+          </details>
+        </div>
+      </article>`;
+    };
+
+    m.innerHTML = `<div class="modal idea-modal production-pack-modal">
+      <div class="production-pack-head">
+        <div>
+          <div class="eyebrow">CREATOR ASSETS</div>
+          <h2>Production Pack</h2>
+          <p>Everything needed to take <b>${esc(idea.title)}</b> from idea to production—without needing to understand the underlying file format.</p>
+        </div>
+        <button class="btn ghost" type="button" id="cancelM">Close</button>
+      </div>
+
+      <section class="agent-production-docs production-generator">
         <div class="agent-production-docs-head">
           <div>
-            <span class="badge strong">Production pack</span>
-            <h3>Generate the assets needed to make this idea</h3>
-            <p class="meta">Idea format: <b>${esc(idea.type || "Long-form")}</b>. Choose the publishing platform for the production prompt.</p>
+            <span class="badge strong">Generate</span>
+            <h3>Build a production pack</h3>
+            <p class="meta">Idea format: <b>${esc(idea.type || "Long-form")}</b>. Choose where this piece will be published.</p>
           </div>
         </div>
         <div class="agent-production-controls">
@@ -701,66 +836,102 @@
               ).join("")}
             </select>
           </label>
-          <button class="btn primary" type="button" id="generateIdeaDocs">Generate production pack</button>
+          <button class="btn primary" type="button" id="generateIdeaDocs">${packDocs.length ? "Regenerate production pack" : "Generate production pack"}</button>
         </div>
-        <div class="agent-production-output">
-          <span>Creates:</span>
-          <b>Script</b>
-          <b>Production Plan</b>
-          <b>Video Prompt</b>
-          <b>Photo Reference</b>
-        </div>
-        <p class="meta" style="margin:8px 0 0">The Video Prompt is paste-ready for AI Studio / Veo. Photo Reference is a truthful image brief with both a capture instruction and an image-generation prompt; it does not pretend a photo already exists.</p>
+        ${generatedPlatforms.length
+          ? `<div class="production-pack-tabs">
+              <span class="meta">Available packs:</span>
+              ${generatedPlatforms.map((platform) => `<button class="btn ${platform === selectedPlatform ? "primary" : "ghost"}" type="button" data-pack-platform="${esc(platform)}">${esc(platform)}</button>`).join("")}
+            </div>`
+          : ""}
       </section>
 
-      <form class="form" id="documentForm">
-        <label>Document type
-          <select name="kind">
-            <option value="script">Script</option>
-            <option value="plan">Production Plan / PRD</option>
-            <option value="video_prompt">Video Prompt</option>
-            <option value="photo_reference">Photo Reference</option>
-            <option value="reference">Reference</option>
-            <option value="other">Other</option>
-          </select>
-        </label>
-        <label>File
-          <input name="file" type="file" required accept=".docx,.pdf,.md,.txt,.png,.jpg,.jpeg,.webp" />
-        </label>
-        <div class="meta">DOCX, PDF, Markdown, text, PNG, JPG, or WebP · maximum 5 MB per file.</div>
-        <div class="actions">
-          <button class="btn ghost" type="button" id="cancelM">Close</button>
-          <button class="btn primary" type="submit">Upload document</button>
-        </div>
-      </form>
+      <section id="ideaDocumentPreview" class="production-preview" hidden></section>
 
-      <div class="card" style="margin-top:12px">
-        <div class="card-h"><h2>Attached files</h2><p>${documents.length} document${documents.length === 1 ? "" : "s"}</p></div>
-        ${documents.length
-          ? documents.map((doc) => `<div class="rank">
-              <span><b>${esc(doc.filename)}</b><div class="meta">${esc(kinds[doc.kind] || doc.kind || "Other")} · ${formatBytes(doc.sizeBytes)}</div></span>
-              <span></span>
-              <span class="meta">${esc(String(doc.uploadedAt || "").replace("T", " ").replace("Z", " UTC"))}${doc.cloudUploadedAt ? "<br>Google Docs synced" : ""}</span>
-              <span class="actions">
-                <a class="btn" href="${API_BASE}/api/idea-documents/${doc.id}">Download</a>
-                ${String(doc.contentType || "").startsWith("text/") || /\.(md|txt)$/i.test(String(doc.filename || ""))
-                  ? `<button class="btn" type="button" data-copy-doc="${doc.id}" data-copy-label="${esc(kinds[doc.kind] || "Document")}">Copy text</button>`
-                  : ""}
-                ${canConvertToGoogleDocs(doc)
-                  ? `<button class="btn" type="button" data-google-doc="${doc.id}">${doc.cloudUrl ? "Upload new Google Doc" : "Upload to Google Docs"}</button>`
-                  : ""}
-                ${doc.cloudUrl ? `<a class="btn primary" href="${esc(doc.cloudUrl)}" target="_blank" rel="noopener">Open Google Doc</a>` : ""}
-                <button class="btn ghost" type="button" data-delete-doc="${doc.id}">Delete</button>
-              </span>
-            </div>`).join("")
-          : `<div class="empty"><p>No documents attached yet. Add the current script and production plan here.</p></div>`}
-      </div>
+      <section class="production-assets-section">
+        <div class="section-label-row production-section-label">
+          <div>
+            <div class="eyebrow">${esc(selectedPlatform.toUpperCase())}</div>
+            <h2>Your production assets</h2>
+          </div>
+          <p>Read them here, copy what you need, or move editable documents into Google Docs.</p>
+        </div>
+        ${packDocs.length
+          ? `<div class="production-assets-grid">${packDocs.map(productionCard).join("")}</div>`
+          : `<div class="production-pack-empty">
+              <h3>No ${esc(selectedPlatform)} production pack yet.</h3>
+              <p>Generate one above and Christina Lab will create the Script, Production Plan, AI Video Prompt and Photo Reference.</p>
+            </div>`}
+      </section>
+
+      <details class="manual-documents">
+        <summary>Add your own files</summary>
+        <div class="manual-documents-body">
+          <p class="meta">Attach a script, plan, reference image, PDF or other material you created outside Christina Lab.</p>
+          <form class="form" id="documentForm">
+            <label>Document type
+              <select name="kind">
+                <option value="script">Script</option>
+                <option value="plan">Production Plan / PRD</option>
+                <option value="video_prompt">Video Prompt</option>
+                <option value="photo_reference">Photo Reference</option>
+                <option value="reference">Reference</option>
+                <option value="other">Other</option>
+              </select>
+            </label>
+            <label>File
+              <input name="file" type="file" required accept=".docx,.pdf,.md,.txt,.png,.jpg,.jpeg,.webp" />
+            </label>
+            <div class="meta">DOCX, PDF, Markdown, text, PNG, JPG, or WebP · maximum 5 MB per file.</div>
+            <div class="actions">
+              <button class="btn primary" type="submit">Add file</button>
+            </div>
+          </form>
+        </div>
+      </details>
+
+      ${additionalDocs.length ? `<section class="additional-files">
+        <div class="section-label-row production-section-label">
+          <div>
+            <div class="eyebrow">YOUR FILES</div>
+            <h2>Additional files</h2>
+          </div>
+          <p>Manual uploads and source material kept with this idea.</p>
+        </div>
+        <div class="additional-file-list">
+          ${additionalDocs.map((doc) => `<div class="additional-file-row">
+            <div>
+              <b>${esc(kinds[doc.kind] || doc.kind || "Other")}</b>
+              <div class="meta">${esc(doc.filename)} · ${formatBytes(doc.sizeBytes)}${doc.cloudUploadedAt ? " · Google Docs synced" : ""}</div>
+            </div>
+            <div class="actions">
+              ${isTextIdeaDocument(doc) ? `<button class="btn" type="button" data-view-doc="${doc.id}">Open</button>` : ""}
+              ${isTextIdeaDocument(doc) ? `<button class="btn" type="button" data-copy-doc="${doc.id}" data-copy-label="${esc(kinds[doc.kind] || "Document")}">Copy</button>` : ""}
+              ${canConvertToGoogleDocs(doc)
+                ? doc.cloudUrl
+                  ? `<a class="btn primary" href="${esc(doc.cloudUrl)}" target="_blank" rel="noopener">Open Google Doc ✓</a>`
+                  : `<button class="btn" type="button" data-google-doc="${doc.id}">Create Google Doc</button>`
+                : ""}
+              <a class="btn ghost" href="${API_BASE}/api/idea-documents/${doc.id}">Download</a>
+              <button class="btn ghost" type="button" data-delete-doc="${doc.id}">Delete</button>
+            </div>
+          </div>`).join("")}
+        </div>
+      </section>` : ""}
     </div>`;
 
     $("cancelM").onclick = () => (m.hidden = true);
     m.onclick = (e) => {
       if (e.target === m) m.hidden = true;
     };
+
+    const platformSelect = $("ideaDocsPlatform");
+    if (platformSelect) {
+      platformSelect.onchange = () => renderIdeaDocumentsModal(idea, documents, platformSelect.value);
+    }
+    document.querySelectorAll("[data-pack-platform]").forEach((button) => {
+      button.onclick = () => renderIdeaDocumentsModal(idea, documents, button.dataset.packPlatform);
+    });
 
     const generateDocsButton = $("generateIdeaDocs");
     if (generateDocsButton) {
@@ -777,7 +948,7 @@
           const payload = await fetchJson("/api/ideas/" + encodeURIComponent(idea.id) + "/documents");
           const items = Array.isArray(payload.items) ? payload.items : [];
           idea.documentCount = items.length;
-          toast((result.documents || []).length + " production docs generated");
+          toast((result.documents || []).length + " production assets generated");
           renderIdeaDocumentsModal(idea, items, platform);
         } catch (error) {
           toast(error?.message || "AI assistance could not generate the production pack");
@@ -786,6 +957,57 @@
         }
       };
     }
+
+    document.querySelectorAll("[data-view-doc]").forEach((button) => {
+      button.onclick = async () => {
+        const doc = documents.find((item) => String(item.id) === String(button.dataset.viewDoc));
+        if (!doc) return;
+        const preview = $("ideaDocumentPreview");
+        const meta = productionAssetMeta(doc.kind);
+        preview.hidden = false;
+        preview.innerHTML = '<div class="production-preview-loading"><div class="skel"></div><div class="skel"></div></div>';
+        preview.scrollIntoView({ behavior: "smooth", block: "start" });
+        try {
+          const response = await fetch(API_BASE + "/api/idea-documents/" + encodeURIComponent(doc.id));
+          if (!response.ok) throw new Error("Could not load this document.");
+          const raw = await response.text();
+          preview.innerHTML = `<div class="production-preview-head">
+              <div>
+                <div class="eyebrow">PREVIEW</div>
+                <h2>${esc(meta.title)}</h2>
+                <p>${esc(meta.description)}</p>
+              </div>
+              <button class="btn ghost" type="button" id="closeDocumentPreview">Close preview</button>
+            </div>
+            <div class="creator-document">${renderCreatorDocumentText(raw)}</div>
+            <div class="production-preview-actions">
+              <button class="btn primary" type="button" data-preview-copy="${doc.id}" data-preview-label="${esc(meta.title)}">${esc(meta.copyLabel)}</button>
+              ${doc.cloudUrl ? `<a class="btn" href="${esc(doc.cloudUrl)}" target="_blank" rel="noopener">Open Google Doc ✓</a>` : ""}
+            </div>`;
+          $("closeDocumentPreview").onclick = () => {
+            preview.hidden = true;
+            preview.innerHTML = "";
+          };
+          preview.querySelector("[data-preview-copy]")?.addEventListener("click", async (e) => {
+            const copyButton = e.currentTarget;
+            copyButton.disabled = true;
+            try {
+              await copyIdeaDocumentText(copyButton.dataset.previewCopy, copyButton.dataset.previewLabel);
+            } catch (error) {
+              toast(error?.message || "Could not copy document");
+            } finally {
+              copyButton.disabled = false;
+            }
+          });
+        } catch (error) {
+          preview.innerHTML = `<div class="production-preview-head"><div><h2>Could not open this asset</h2><p>${esc(error?.message || "Could not load document.")}</p></div><button class="btn ghost" type="button" id="closeDocumentPreview">Close</button></div>`;
+          $("closeDocumentPreview").onclick = () => {
+            preview.hidden = true;
+            preview.innerHTML = "";
+          };
+        }
+      };
+    });
 
     document.querySelectorAll("[data-copy-doc]").forEach((button) => {
       button.onclick = async () => {
@@ -830,7 +1052,7 @@
         const payload = await fetchJson("/api/ideas/" + encodeURIComponent(idea.id) + "/documents");
         const items = Array.isArray(payload.items) ? payload.items : [];
         idea.documentCount = items.length;
-        toast("Document uploaded");
+        toast("File added");
         renderIdeaDocumentsModal(idea, items, selectedPlatform);
       } catch (error) {
         toast(error?.message || "Could not upload document");
@@ -843,24 +1065,31 @@
         const doc = documents.find((item) => String(item.id) === String(button.dataset.googleDoc));
         if (!doc) return;
         button.disabled = true;
-        button.textContent = "Connecting…";
+        const original = button.textContent;
+        button.textContent = "Creating…";
         try {
-          await uploadDocumentToGoogleDocs(idea, doc);
+          const created = await uploadDocumentToGoogleDocs(idea, doc);
           const payload = await fetchJson("/api/ideas/" + encodeURIComponent(idea.id) + "/documents");
           const items = Array.isArray(payload.items) ? payload.items : [];
           idea.documentCount = items.length;
-          toast("Uploaded to Google Docs");
+          toast("Google Doc ready");
+          if (created?.webViewLink) window.open(created.webViewLink, "_blank", "noopener");
           renderIdeaDocumentsModal(idea, items, selectedPlatform);
         } catch (error) {
-          toast(error?.message || "Could not upload to Google Docs");
+          toast(error?.message || "Could not create Google Doc");
           button.disabled = false;
-          button.textContent = doc.cloudUrl ? "Upload new Google Doc" : "Upload to Google Docs";
+          button.textContent = original;
         }
       };
     });
 
     document.querySelectorAll("[data-delete-doc]").forEach((button) => {
       button.onclick = async () => {
+        const doc = documents.find((item) => String(item.id) === String(button.dataset.deleteDoc));
+        if (!doc) return;
+        const confirmed = window.confirm("Delete this " + String(kinds[doc.kind] || "document").toLowerCase() + "?");
+        if (!confirmed) return;
+        button.disabled = true;
         try {
           await apiJson("/api/idea-documents/" + encodeURIComponent(button.dataset.deleteDoc), {
             method: "DELETE",
@@ -872,6 +1101,7 @@
           renderIdeaDocumentsModal(idea, items, selectedPlatform);
         } catch (error) {
           toast(error?.message || "Could not remove document");
+          button.disabled = false;
         }
       };
     });
@@ -1822,7 +2052,7 @@
               <div class="hook">${esc(idea.hook || idea.hypothesis || "No hook/hypothesis written yet")}</div>
               <div class="meta">${esc(idea.topic || "Unspecified")} · ${esc(idea.type)} · ${esc(idea.priority)} priority${idea.sourceVideoId ? " · sourced from research" : ""} · ${Number(idea.documentCount || 0)} doc${Number(idea.documentCount || 0) === 1 ? "" : "s"}</div>
               <div class="actions" style="margin-top:8px">
-                <button class="btn" data-docs="${idea.id}">Documents</button>
+                <button class="btn" data-docs="${idea.id}">Production Pack</button>
                 <button class="btn primary" data-create-exp="${idea.id}">Create Experiment</button>
               </div>
             </div>`).join("")}
