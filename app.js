@@ -973,29 +973,38 @@
 
     const platformSelect = $("ideaDocsPlatform");
     if (platformSelect) {
-      platformSelect.onchange = () => renderIdeaDocumentsModal(idea, documents, platformSelect.value);
+      platformSelect.onchange = () => renderIdeaDocumentsModal(idea, documents, platformSelect.value, targetDurationMinutes);
     }
     document.querySelectorAll("[data-pack-platform]").forEach((button) => {
-      button.onclick = () => renderIdeaDocumentsModal(idea, documents, button.dataset.packPlatform);
+      button.onclick = () => renderIdeaDocumentsModal(idea, documents, button.dataset.packPlatform, targetDurationMinutes);
     });
 
     const generateDocsButton = $("generateIdeaDocs");
     if (generateDocsButton) {
       generateDocsButton.onclick = async () => {
         const platform = $("ideaDocsPlatform")?.value || selectedPlatform;
+        const durationInput = $("ideaDocsDuration");
+        const requestedDuration = isLongForm ? Number(durationInput?.value || targetDurationMinutes) : null;
+        if (isLongForm && (!Number.isFinite(requestedDuration) || requestedDuration < 3 || requestedDuration > 20)) {
+          toast("Choose a target length between 3 and 20 minutes");
+          return;
+        }
         const original = generateDocsButton.textContent;
         generateDocsButton.disabled = true;
         generateDocsButton.textContent = "Generating…";
         try {
           const result = await apiJson("/api/ideas/" + encodeURIComponent(idea.id) + "/agent-documents", {
             method: "POST",
-            body: { platform },
+            body: {
+              platform,
+              targetDurationMinutes: isLongForm ? requestedDuration : null,
+            },
           });
           const payload = await fetchJson("/api/ideas/" + encodeURIComponent(idea.id) + "/documents");
           const items = Array.isArray(payload.items) ? payload.items : [];
           idea.documentCount = items.length;
           toast((result.documents || []).length + " production assets generated");
-          renderIdeaDocumentsModal(idea, items, platform);
+          renderIdeaDocumentsModal(idea, items, platform, isLongForm ? requestedDuration : null);
         } catch (error) {
           toast(error?.message || "AI assistance could not generate the production pack");
           generateDocsButton.disabled = false;
@@ -1099,7 +1108,7 @@
         const items = Array.isArray(payload.items) ? payload.items : [];
         idea.documentCount = items.length;
         toast("File added");
-        renderIdeaDocumentsModal(idea, items, selectedPlatform);
+        renderIdeaDocumentsModal(idea, items, selectedPlatform, targetDurationMinutes);
       } catch (error) {
         toast(error?.message || "Could not upload document");
         if (submit) submit.disabled = false;
@@ -1120,7 +1129,7 @@
           idea.documentCount = items.length;
           toast("Google Doc ready");
           if (created?.webViewLink) window.open(created.webViewLink, "_blank", "noopener");
-          renderIdeaDocumentsModal(idea, items, selectedPlatform);
+          renderIdeaDocumentsModal(idea, items, selectedPlatform, targetDurationMinutes);
         } catch (error) {
           toast(error?.message || "Could not create Google Doc");
           button.disabled = false;
@@ -1144,7 +1153,7 @@
           const items = Array.isArray(payload.items) ? payload.items : [];
           idea.documentCount = items.length;
           toast("Document removed");
-          renderIdeaDocumentsModal(idea, items, selectedPlatform);
+          renderIdeaDocumentsModal(idea, items, selectedPlatform, targetDurationMinutes);
         } catch (error) {
           toast(error?.message || "Could not remove document");
           button.disabled = false;
