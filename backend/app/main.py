@@ -915,7 +915,10 @@ async def delete_experiment(experiment_id: int) -> dict:
 # Serve the lightweight frontend from the same Render service for the alpha deployment.
 @app.get("/", include_in_schema=False)
 async def frontend_index():
-    return FileResponse(os.path.join(FRONTEND_DIR, "index.html"))
+    return FileResponse(
+        os.path.join(FRONTEND_DIR, "index.html"),
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )
 
 
 @app.get("/{asset_name}", include_in_schema=False)
@@ -923,4 +926,7 @@ async def frontend_asset(asset_name: str):
     allowed_assets = {"styles.css", "data.js", "agent.js", "app.js", "thumb.jpg"}
     if asset_name not in allowed_assets:
         raise HTTPException(status_code=404, detail="Not found.")
-    return FileResponse(os.path.join(FRONTEND_DIR, asset_name))
+    return FileResponse(
+        os.path.join(FRONTEND_DIR, asset_name),
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )
