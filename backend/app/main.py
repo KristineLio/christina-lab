@@ -23,6 +23,7 @@ from .creator_agent import (
     generate_package,
     generate_short_package,
     load_github_repo_context,
+    load_public_youtube_transcript,
     provider_status,
     relevant_saved_research,
     compact_youtube_sources,
@@ -537,6 +538,14 @@ async def creator_agent_research(payload: CreatorAgentResearchRequest) -> dict:
         "youtubeCount": len(sources),
         "savedResearchCount": len(saved),
     }
+
+
+@app.get("/api/agent/shorts/transcript/{video_id}")
+async def creator_agent_short_transcript(video_id: str) -> dict:
+    try:
+        return await load_public_youtube_transcript(video_id)
+    except CreatorAgentError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 @app.post("/api/agent/shorts/analyze")
