@@ -301,6 +301,10 @@
 
   async function apiJson(apiBase, path, options) {
     const config = Object.assign({}, options || {});
+    config.headers = Object.assign({}, config.headers || {});
+    if (window.CL_WORKSPACE_ID) {
+      config.headers["X-Christina-Workspace"] = window.CL_WORKSPACE_ID;
+    }
     if (config.body && typeof config.body !== "string") {
       config.headers = Object.assign({ "Content-Type": "application/json" }, config.headers || {});
       config.body = JSON.stringify(config.body);
@@ -335,6 +339,10 @@
           repoUrl: String(data.get("repoUrl") || "").trim(),
           contentType: String(data.get("contentType") || "Long-form"),
         };
+        if (window.CL_CONFIRM_AI_SHARE && !window.CL_CONFIRM_AI_SHARE(
+          "advanced-research",
+          "Your project name, goal, topic, optional public GitHub repo URL, selected content type, matching saved research, and public YouTube research signals will be sent for this research pass."
+        )) return;
         state.loading = true;
         state.error = "";
         state.research = null;
@@ -557,6 +565,10 @@
         });
         if (!angle) return;
 
+        if (window.CL_CONFIRM_AI_SHARE && !window.CL_CONFIRM_AI_SHARE(
+          "advanced-package",
+          "The chosen angle, project context, selected source materials, matching saved research, and public repo context will be sent to generate and save this creator package."
+        )) return;
         state.packageLoading = true;
         state.error = "";
         state.result = null;

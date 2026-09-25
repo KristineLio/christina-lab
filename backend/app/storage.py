@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import re
+import secrets
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from statistics import median
@@ -176,6 +178,75 @@ class SnapshotStore:
 
     def init_schema(self) -> None:
         run_migrations(self._connect)
+
+    @staticmethod
+    def _workspace_key_hash(access_key: str) -> str:
+        return hashlib.sha256(str(access_key or "").encode("utf-8")).hexdigest()
+
+    def owner_workspace_claimed(self) -> bool:
+        with self._connect() as db:
+            row = db.execute(
+                """
+                SELECT access_key_hash
+                FROM workspace_access
+                WHERE workspace_id = 'owner'
+                """
+            ).fetchone()
+        return bool(row and str(row["access_key_hash"] or "").strip())
+
+    def claim_owner_workspace(self) -> str | None:
+        """Claim the migrated owner workspace once and return its recovery key."""
+
+        with self._connect() as db:
+            row = db.execute(
+                """
+                SELECT access_key_hash
+                FROM workspace_access
+                WHERE workspace_id = 'owner'
+                """
+            ).fetchone()
+            if row is None:
+                raise RuntimeError("Owner workspace access row is missing.")
+            if str(row["access_key_hash"] or "").strip():
+                return None
+
+            access_key = "clw_" + secrets.token_urlsafe(32)
+            cursor = db.execute(
+                """
+                UPDATE workspace_access
+                SET access_key_hash = ?, claimed_at = ?
+                WHERE workspace_id = 'owner'
+                  AND access_key_hash = ''
+                """,
+                (self._workspace_key_hash(access_key), _iso(_utc_now())),
+            )
+            return access_key if cursor.rowcount > 0 else None
+
+    def verify_owner_workspace_key(self, access_key: str) -> bool:
+        candidate = self._workspace_key_hash(access_key)
+        with self._connect() as db:
+            row = db.execute(
+                """
+                SELECT access_key_hash
+                FROM workspace_access
+                WHERE workspace_id = 'owner'
+                """
+            ).fetchone()
+        expected = str(row["access_key_hash"] or "").strip() if row else ""
+        return bool(expected) and secrets.compare_digest(candidate, expected)
+
+    def workspace_id_for_access_key(self, access_key: str) -> str:
+        """Map an opaque browser/invite key to a DB workspace ID.
+
+        The owner key resolves to the migrated owner workspace. Any other
+        well-formed private-alpha key gets a deterministic hashed workspace so
+        the raw invite secret is never stored with creator data.
+        """
+
+        if self.verify_owner_workspace_key(access_key):
+            return "owner"
+        digest = self._workspace_key_hash(access_key)
+        return "w_" + digest[:40]
 
     def record_snapshots(
         self,
@@ -826,7 +897,12 @@ class SnapshotStore:
             },
         }
 
-    def _research_row(self, db: DatabaseConnection, video_id: str) -> CompatRow | None:
+    def _research_row(
+        self,
+        db: DatabaseConnection,
+        video_id: str,
+        workspace_id: str = "owner",
+    ) -> CompatRow | None:
         return db.execute(
             """
             SELECT
@@ -861,8 +937,9 @@ class SnapshotStore:
                     SELECT COUNT(*)
                     FROM ideas i
                     WHERE i.source_video_id = r.video_id
+                      AND i.workspace_id = r.workspace_id
                 ) AS idea_count
-            FROM saved_research r
+            FROM workspace_saved_research r
             JOIN videos v ON v.video_id = r.video_id
             LEFT JOIN video_snapshots s ON s.id = (
                 SELECT s2.id
@@ -878,9 +955,9 @@ class SnapshotStore:
                 ORDER BY a2.id DESC
                 LIMIT 1
             )
-            WHERE r.video_id = ?
+            WHERE r.workspace_id = ? AND r.video_id = ?
             """,
-            (video_id,),
+            (workspace_id, video_id),
         ).fetchone()
 
     @staticmethod
@@ -925,6 +1002,7 @@ class SnapshotStore:
         adapt: str | None = None,
         angle: str | None = None,
         collection: str | None = None,
+        workspace_id: str = "owner",
     ) -> dict:
         now = _iso(_utc_now())
         with self._connect() as db:
@@ -936,20 +1014,25 @@ class SnapshotStore:
                 raise ValueError("Video is not in Christina Lab's research database yet.")
 
             current = db.execute(
-                "SELECT * FROM saved_research WHERE video_id = ?",
-                (video_id,),
+                """
+                SELECT *
+                FROM workspace_saved_research
+                WHERE workspace_id = ? AND video_id = ?
+                """,
+                (workspace_id, video_id),
             ).fetchone()
 
             if current is None:
                 db.execute(
                     """
-                    INSERT INTO saved_research (
-                        video_id, saved_at, updated_at, why_saved, adaptation,
-                        unique_angle, collection_name
+                    INSERT INTO workspace_saved_research (
+                        workspace_id, video_id, saved_at, updated_at, why_saved,
+                        adaptation, unique_angle, collection_name
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
+                        workspace_id,
                         video_id,
                         now,
                         now,
@@ -962,13 +1045,13 @@ class SnapshotStore:
             else:
                 db.execute(
                     """
-                    UPDATE saved_research
+                    UPDATE workspace_saved_research
                     SET updated_at = ?,
                         why_saved = ?,
                         adaptation = ?,
                         unique_angle = ?,
                         collection_name = ?
-                    WHERE video_id = ?
+                    WHERE workspace_id = ? AND video_id = ?
                     """,
                     (
                         now,
@@ -976,32 +1059,45 @@ class SnapshotStore:
                         current["adaptation"] if adapt is None else adapt,
                         current["unique_angle"] if angle is None else angle,
                         current["collection_name"] if collection is None else collection,
+                        workspace_id,
                         video_id,
                     ),
                 )
 
-            row = self._research_row(db, video_id)
+            row = self._research_row(db, video_id, workspace_id)
             if row is None:
                 raise ValueError("Could not load saved research after saving.")
             return self._serialize_research(row)
 
-    def remove_saved_research(self, video_id: str) -> bool:
+    def remove_saved_research(self, video_id: str, *, workspace_id: str = "owner") -> bool:
         with self._connect() as db:
             cursor = db.execute(
-                "DELETE FROM saved_research WHERE video_id = ?",
-                (video_id,),
+                """
+                DELETE FROM workspace_saved_research
+                WHERE workspace_id = ? AND video_id = ?
+                """,
+                (workspace_id, video_id),
             )
             return cursor.rowcount > 0
 
-    def list_saved_research(self) -> list[dict]:
+    def list_saved_research(self, *, workspace_id: str = "owner") -> list[dict]:
         with self._connect() as db:
             ids = [
                 row["video_id"]
                 for row in db.execute(
-                    "SELECT video_id FROM saved_research ORDER BY saved_at DESC"
+                    """
+                    SELECT video_id
+                    FROM workspace_saved_research
+                    WHERE workspace_id = ?
+                    ORDER BY saved_at DESC
+                    """,
+                    (workspace_id,),
                 ).fetchall()
             ]
-            rows = [self._research_row(db, video_id) for video_id in ids]
+            rows = [
+                self._research_row(db, video_id, workspace_id)
+                for video_id in ids
+            ]
         return [self._serialize_research(row) for row in rows if row is not None]
 
     @staticmethod
@@ -1046,7 +1142,12 @@ class SnapshotStore:
             item["content"] = bytes(row["content"])
         return item
 
-    def _idea_row(self, db: DatabaseConnection, idea_id: int) -> CompatRow | None:
+    def _idea_row(
+        self,
+        db: DatabaseConnection,
+        idea_id: int,
+        workspace_id: str = "owner",
+    ) -> CompatRow | None:
         return db.execute(
             """
             SELECT
@@ -1057,9 +1158,9 @@ class SnapshotStore:
                     WHERE d.idea_id = i.id
                 ) AS document_count
             FROM ideas i
-            WHERE i.id = ?
+            WHERE i.id = ? AND i.workspace_id = ?
             """,
-            (idea_id,),
+            (idea_id, workspace_id),
         ).fetchone()
 
     def create_idea(
@@ -1076,6 +1177,7 @@ class SnapshotStore:
         notes: str = "",
         priority: str = "Med",
         status: str = "Draft",
+        workspace_id: str = "owner",
     ) -> dict:
         now = _iso(_utc_now())
         clean_title = str(title or "").strip()
@@ -1094,12 +1196,13 @@ class SnapshotStore:
             cursor = db.execute(
                 """
                 INSERT INTO ideas (
-                    source_video_id, title, hook, topic, content_type, angle,
+                    workspace_id, source_video_id, title, hook, topic, content_type, angle,
                     audience, hypothesis, notes, priority, status, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
+                    workspace_id,
                     source_video_id,
                     clean_title,
                     hook,
@@ -1115,10 +1218,10 @@ class SnapshotStore:
                     now,
                 ),
             )
-            row = self._idea_row(db, int(cursor.lastrowid))
+            row = self._idea_row(db, int(cursor.lastrowid), workspace_id)
             return self._serialize_idea(row)
 
-    def list_ideas(self) -> list[dict]:
+    def list_ideas(self, *, workspace_id: str = "owner") -> list[dict]:
         with self._connect() as db:
             rows = db.execute(
                 """
@@ -1130,17 +1233,25 @@ class SnapshotStore:
                         WHERE d.idea_id = i.id
                     ) AS document_count
                 FROM ideas i
+                WHERE i.workspace_id = ?
                 ORDER BY i.updated_at DESC, i.id DESC
-                """
+                """,
+                (workspace_id,),
             ).fetchall()
         return [self._serialize_idea(row) for row in rows]
 
-    def get_idea(self, idea_id: int) -> dict | None:
+    def get_idea(self, idea_id: int, *, workspace_id: str = "owner") -> dict | None:
         with self._connect() as db:
-            row = self._idea_row(db, idea_id)
+            row = self._idea_row(db, idea_id, workspace_id)
         return self._serialize_idea(row) if row else None
 
-    def update_idea(self, idea_id: int, changes: dict) -> dict | None:
+    def update_idea(
+        self,
+        idea_id: int,
+        changes: dict,
+        *,
+        workspace_id: str = "owner",
+    ) -> dict | None:
         allowed = {
             "title": "title",
             "hook": "hook",
@@ -1161,20 +1272,20 @@ class SnapshotStore:
                 values.append(changes[key])
 
         if not updates:
-            return self.get_idea(idea_id)
+            return self.get_idea(idea_id, workspace_id=workspace_id)
 
         updates.append("updated_at = ?")
         values.append(_iso(_utc_now()))
-        values.append(idea_id)
+        values.extend([idea_id, workspace_id])
 
         with self._connect() as db:
             cursor = db.execute(
-                f"UPDATE ideas SET {', '.join(updates)} WHERE id = ?",
+                f"UPDATE ideas SET {', '.join(updates)} WHERE id = ? AND workspace_id = ?",
                 values,
             )
             if cursor.rowcount == 0:
                 return None
-            row = self._idea_row(db, idea_id)
+            row = self._idea_row(db, idea_id, workspace_id)
             return self._serialize_idea(row)
 
     def save_idea_document(
@@ -1185,11 +1296,12 @@ class SnapshotStore:
         filename: str,
         content_type: str,
         content: bytes,
+        workspace_id: str = "owner",
     ) -> dict:
         now = _iso(_utc_now())
         payload = bytes(content)
         with self._connect() as db:
-            if self._idea_row(db, idea_id) is None:
+            if self._idea_row(db, idea_id, workspace_id) is None:
                 raise ValueError("Idea not found.")
             cursor = db.execute(
                 """
@@ -1214,9 +1326,14 @@ class SnapshotStore:
             ).fetchone()
             return self._serialize_idea_document(row)
 
-    def list_idea_documents(self, idea_id: int) -> list[dict]:
+    def list_idea_documents(
+        self,
+        idea_id: int,
+        *,
+        workspace_id: str = "owner",
+    ) -> list[dict]:
         with self._connect() as db:
-            if self._idea_row(db, idea_id) is None:
+            if self._idea_row(db, idea_id, workspace_id) is None:
                 raise ValueError("Idea not found.")
             rows = db.execute(
                 """
@@ -1231,11 +1348,21 @@ class SnapshotStore:
             ).fetchall()
         return [self._serialize_idea_document(row) for row in rows]
 
-    def get_idea_document(self, document_id: int) -> dict | None:
+    def get_idea_document(
+        self,
+        document_id: int,
+        *,
+        workspace_id: str = "owner",
+    ) -> dict | None:
         with self._connect() as db:
             row = db.execute(
-                "SELECT * FROM idea_documents WHERE id = ?",
-                (document_id,),
+                """
+                SELECT d.*
+                FROM idea_documents d
+                JOIN ideas i ON i.id = d.idea_id
+                WHERE d.id = ? AND i.workspace_id = ?
+                """,
+                (document_id, workspace_id),
             ).fetchone()
         return self._serialize_idea_document(row, include_content=True) if row else None
 
@@ -1246,9 +1373,21 @@ class SnapshotStore:
         provider: str,
         file_id: str,
         url: str,
+        workspace_id: str = "owner",
     ) -> dict | None:
         uploaded_at = _iso(_utc_now())
         with self._connect() as db:
+            owned = db.execute(
+                """
+                SELECT d.id
+                FROM idea_documents d
+                JOIN ideas i ON i.id = d.idea_id
+                WHERE d.id = ? AND i.workspace_id = ?
+                """,
+                (document_id, workspace_id),
+            ).fetchone()
+            if owned is None:
+                return None
             cursor = db.execute(
                 """
                 UPDATE idea_documents
@@ -1268,8 +1407,24 @@ class SnapshotStore:
             ).fetchone()
             return self._serialize_idea_document(row)
 
-    def delete_idea_document(self, document_id: int) -> bool:
+    def delete_idea_document(
+        self,
+        document_id: int,
+        *,
+        workspace_id: str = "owner",
+    ) -> bool:
         with self._connect() as db:
+            owned = db.execute(
+                """
+                SELECT d.id
+                FROM idea_documents d
+                JOIN ideas i ON i.id = d.idea_id
+                WHERE d.id = ? AND i.workspace_id = ?
+                """,
+                (document_id, workspace_id),
+            ).fetchone()
+            if owned is None:
+                return False
             cursor = db.execute(
                 "DELETE FROM idea_documents WHERE id = ?",
                 (document_id,),
@@ -1308,10 +1463,14 @@ class SnapshotStore:
         hypothesis: str | None = None,
         status: str | None = None,
         decision: str = "UNDECIDED",
+        workspace_id: str = "owner",
     ) -> dict:
         now = _iso(_utc_now())
         with self._connect() as db:
-            idea = db.execute("SELECT * FROM ideas WHERE id = ?", (idea_id,)).fetchone()
+            idea = db.execute(
+                "SELECT * FROM ideas WHERE id = ? AND workspace_id = ?",
+                (idea_id, workspace_id),
+            ).fetchone()
             if idea is None:
                 raise ValueError("Idea not found.")
 
@@ -1345,22 +1504,45 @@ class SnapshotStore:
             ).fetchone()
             return self._serialize_experiment(row)
 
-    def list_experiments(self) -> list[dict]:
+    def list_experiments(self, *, workspace_id: str = "owner") -> list[dict]:
         with self._connect() as db:
             rows = db.execute(
-                "SELECT * FROM experiments ORDER BY updated_at DESC, id DESC"
+                """
+                SELECT e.*
+                FROM experiments e
+                JOIN ideas i ON i.id = e.idea_id
+                WHERE i.workspace_id = ?
+                ORDER BY e.updated_at DESC, e.id DESC
+                """,
+                (workspace_id,),
             ).fetchall()
         return [self._serialize_experiment(row) for row in rows]
 
-    def get_experiment(self, experiment_id: int) -> dict | None:
+    def get_experiment(
+        self,
+        experiment_id: int,
+        *,
+        workspace_id: str = "owner",
+    ) -> dict | None:
         with self._connect() as db:
             row = db.execute(
-                "SELECT * FROM experiments WHERE id = ?",
-                (experiment_id,),
+                """
+                SELECT e.*
+                FROM experiments e
+                JOIN ideas i ON i.id = e.idea_id
+                WHERE e.id = ? AND i.workspace_id = ?
+                """,
+                (experiment_id, workspace_id),
             ).fetchone()
         return self._serialize_experiment(row) if row else None
 
-    def update_experiment(self, experiment_id: int, changes: dict) -> dict | None:
+    def update_experiment(
+        self,
+        experiment_id: int,
+        changes: dict,
+        *,
+        workspace_id: str = "owner",
+    ) -> dict | None:
         allowed = {
             "name": "name",
             "topic": "topic",
@@ -1386,13 +1568,24 @@ class SnapshotStore:
                 values.append(changes[key])
 
         if not updates:
-            return self.get_experiment(experiment_id)
+            return self.get_experiment(experiment_id, workspace_id=workspace_id)
 
         updates.append("updated_at = ?")
         values.append(_iso(_utc_now()))
         values.append(experiment_id)
 
         with self._connect() as db:
+            owned = db.execute(
+                """
+                SELECT e.id
+                FROM experiments e
+                JOIN ideas i ON i.id = e.idea_id
+                WHERE e.id = ? AND i.workspace_id = ?
+                """,
+                (experiment_id, workspace_id),
+            ).fetchone()
+            if owned is None:
+                return None
             cursor = db.execute(
                 f"UPDATE experiments SET {', '.join(updates)} WHERE id = ?",
                 values,
@@ -1415,18 +1608,34 @@ class SnapshotStore:
                 )
             return self._serialize_experiment(row)
 
-    def delete_experiment(self, experiment_id: int) -> bool:
+    def delete_experiment(
+        self,
+        experiment_id: int,
+        *,
+        workspace_id: str = "owner",
+    ) -> bool:
         with self._connect() as db:
+            owned = db.execute(
+                """
+                SELECT e.id
+                FROM experiments e
+                JOIN ideas i ON i.id = e.idea_id
+                WHERE e.id = ? AND i.workspace_id = ?
+                """,
+                (experiment_id, workspace_id),
+            ).fetchone()
+            if owned is None:
+                return False
             cursor = db.execute(
                 "DELETE FROM experiments WHERE id = ?",
                 (experiment_id,),
             )
             return cursor.rowcount > 0
 
-    def workflow_summary(self) -> dict:
-        saved = self.list_saved_research()
-        ideas = self.list_ideas()
-        experiments = self.list_experiments()
+    def workflow_summary(self, *, workspace_id: str = "owner") -> dict:
+        saved = self.list_saved_research(workspace_id=workspace_id)
+        ideas = self.list_ideas(workspace_id=workspace_id)
+        experiments = self.list_experiments(workspace_id=workspace_id)
 
         decision_counts = {"GO": 0, "TEST": 0, "HOLD": 0, "UNDECIDED": 0}
         for experiment in experiments:

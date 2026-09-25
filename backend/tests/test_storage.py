@@ -996,3 +996,91 @@ def test_delete_experiment_preserves_source_idea(tmp_path):
     assert store.get_experiment(experiment["id"]) is None
     assert store.get_idea(idea["id"]) is not None
     assert store.delete_experiment(experiment["id"]) is False
+
+
+
+def test_private_alpha_workspaces_isolate_creator_data(tmp_path):
+    db = tmp_path / "christina_lab.sqlite3"
+    store = SnapshotStore(f"sqlite:///{db}")
+
+    owner_key = store.claim_owner_workspace()
+    assert owner_key is not None
+    assert store.claim_owner_workspace() is None
+    assert store.verify_owner_workspace_key(owner_key) is True
+    assert store.verify_owner_workspace_key("clw_" + "x" * 43) is False
+
+    tester_key = "clw_" + "t" * 43
+    tester_workspace = store.workspace_id_for_access_key(tester_key)
+    assert tester_workspace != "owner"
+
+    observed = datetime(2026, 9, 25, 12, 0, tzinfo=timezone.utc)
+    store.record_snapshots(
+        [_video(video_id="shared-source", published_at=observed, views=500)],
+        observed_at=observed + timedelta(hours=1),
+        min_interval_minutes=0,
+    )
+
+    store.save_research("shared-source", why="Owner note", workspace_id="owner")
+    store.save_research(
+        "shared-source",
+        why="Tester note",
+        workspace_id=tester_workspace,
+    )
+    assert store.list_saved_research(workspace_id="owner")[0]["why"] == "Owner note"
+    assert (
+        store.list_saved_research(workspace_id=tester_workspace)[0]["why"]
+        == "Tester note"
+    )
+
+    owner_idea = store.create_idea(title="Owner idea", workspace_id="owner")
+    tester_idea = store.create_idea(
+        title="Tester idea",
+        workspace_id=tester_workspace,
+    )
+
+    assert [item["title"] for item in store.list_ideas(workspace_id="owner")] == [
+        "Owner idea"
+    ]
+    assert [
+        item["title"]
+        for item in store.list_ideas(workspace_id=tester_workspace)
+    ] == ["Tester idea"]
+    assert (
+        store.get_idea(owner_idea["id"], workspace_id=tester_workspace)
+        is None
+    )
+
+    owner_doc = store.save_idea_document(
+        owner_idea["id"],
+        kind="script",
+        filename="owner.md",
+        content_type="text/markdown",
+        content=b"owner",
+        workspace_id="owner",
+    )
+    assert (
+        store.get_idea_document(
+            owner_doc["id"],
+            workspace_id=tester_workspace,
+        )
+        is None
+    )
+
+    owner_experiment = store.create_experiment(
+        idea_id=owner_idea["id"],
+        workspace_id="owner",
+    )
+    assert (
+        store.get_experiment(
+            owner_experiment["id"],
+            workspace_id=tester_workspace,
+        )
+        is None
+    )
+    assert (
+        store.delete_experiment(
+            owner_experiment["id"],
+            workspace_id=tester_workspace,
+        )
+        is False
+    )

@@ -17,6 +17,39 @@
       : "");
 
   const LIVE_SESSION_KEY = "christinaLab.liveResearch.v2";
+  const WORKSPACE_STORAGE_KEY = "christinaLab.workspaceAccess.v1";
+  const AI_DISCLOSURE_PREFIX = "christinaLab.aiDisclosure.v1.";
+  const GOOGLE_DISCLOSURE_KEY = "christinaLab.googleDisclosure.v1";
+
+  function validWorkspaceKey(value) {
+    return /^clw_[A-Za-z0-9_-]{24,100}$/.test(String(value || ""));
+  }
+
+  function randomWorkspaceKey() {
+    const bytes = new Uint8Array(32);
+    crypto.getRandomValues(bytes);
+    const token = btoa(String.fromCharCode(...bytes))
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/g, "");
+    return "clw_" + token;
+  }
+
+  function workspaceLink(accessKey) {
+    const url = new URL(location.href);
+    url.search = "";
+    url.searchParams.set("workspace", accessKey);
+    url.hash = "";
+    return url.toString();
+  }
+
+  function workspaceHeaders(extra = {}) {
+    const headers = { ...(extra || {}) };
+    if (state.workspaceAccessKey) {
+      headers["X-Christina-Workspace"] = state.workspaceAccessKey;
+    }
+    return headers;
+  }
 
   function readLiveSession() {
     try {
@@ -77,6 +110,11 @@
     creatorAgentProvider: "gemini",
     creatorAgentModel: "",
     creatorAgentProviders: null,
+    workspaceAccessKey: "",
+    workspaceReady: false,
+    workspaceType: "",
+    workspaceIsOwner: false,
+    workspaceError: "",
   };
 
   function writeLiveSession() {
@@ -184,6 +222,7 @@
 
   async function apiJson(path, options = {}) {
     const config = { ...options };
+    config.headers = workspaceHeaders(config.headers || {});
     if (config.body && typeof config.body !== "string") {
       config.headers = { "Content-Type": "application/json", ...(config.headers || {}) };
       config.body = JSON.stringify(config.body);
@@ -204,6 +243,70 @@
   async function fetchJson(path) {
     return apiJson(path);
   }
+
+  async function bootstrapWorkspace() {
+    state.workspaceError = "";
+    const queryKey = new URLSearchParams(location.search).get("workspace");
+    let accessKey = validWorkspaceKey(queryKey)
+      ? queryKey
+      : String(localStorage.getItem(WORKSPACE_STORAGE_KEY) || "");
+
+    if (!validWorkspaceKey(accessKey)) {
+      accessKey = "";
+      try {
+        const response = await fetch(API_BASE + "/api/workspace/claim-owner", { method: "POST" });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(payload.detail || "This private alpha workspace is already claimed.");
+        }
+        accessKey = String(payload.accessKey || "");
+        if (!validWorkspaceKey(accessKey)) throw new Error("Owner workspace claim did not return a valid key.");
+        localStorage.setItem(WORKSPACE_STORAGE_KEY, accessKey);
+      } catch (error) {
+        state.workspaceError = error?.message || "Open Christina Lab from a valid owner or tester invite link.";
+        state.workspaceReady = false;
+        return;
+      }
+    } else {
+      localStorage.setItem(WORKSPACE_STORAGE_KEY, accessKey);
+    }
+
+    state.workspaceAccessKey = accessKey;
+    window.CL_WORKSPACE_ID = accessKey;
+
+    try {
+      const status = await apiJson("/api/workspace/status");
+      state.workspaceType = String(status.workspaceType || "tester");
+      state.workspaceIsOwner = Boolean(status.isOwner);
+      state.workspaceReady = true;
+    } catch (error) {
+      state.workspaceError = error?.message || "Could not verify this private alpha workspace.";
+      state.workspaceReady = false;
+    }
+  }
+
+  function aiDisclosureKey(kind) {
+    return AI_DISCLOSURE_PREFIX + String(state.workspaceAccessKey || "").slice(-12) + "." + String(kind || "general");
+  }
+
+  function confirmAiShare(kind, details) {
+    const key = aiDisclosureKey(kind);
+    try {
+      if (localStorage.getItem(key) === "accepted") return true;
+    } catch (_) {}
+    const provider = state.creatorAgentProvider || "the configured AI provider";
+    const accepted = window.confirm(
+      "What will be shared with AI?\n\n" +
+      String(details || "Only the context needed for this generation.") +
+      "\n\nProvider: " + provider +
+      "\n\nNot included: your Google Drive contents, unrelated experiments, or social account access.\n\nContinue?"
+    );
+    if (accepted) {
+      try { localStorage.setItem(key, "accepted"); } catch (_) {}
+    }
+    return accepted;
+  }
+  window.CL_CONFIRM_AI_SHARE = confirmAiShare;
 
   async function loadPublicConfig(force = false) {
     if (state.publicConfigLoaded && !force) return;
@@ -236,6 +339,18 @@
     const now = Date.now();
     if (state.googleAccessToken && state.googleTokenExpiresAt > now + 60_000) {
       return state.googleAccessToken;
+    }
+
+    try {
+      if (localStorage.getItem(GOOGLE_DISCLOSURE_KEY) !== "accepted") {
+        const accepted = window.confirm(
+          "Connect Google Drive?\n\nChristina Lab requests Google\'s drive.file permission. This lets it create and work with files created through Christina Lab; it does not grant access to your entire Drive.\n\nThe Google access token stays in this browser session and is not stored in Christina Lab\'s database.\n\nContinue?"
+        );
+        if (!accepted) throw new Error("Google Drive connection cancelled.");
+        localStorage.setItem(GOOGLE_DISCLOSURE_KEY, "accepted");
+      }
+    } catch (error) {
+      if (error?.message) throw error;
     }
 
     if (!window.google?.accounts?.oauth2) {
@@ -281,7 +396,10 @@
     }
 
     const token = await ensureGoogleAccessToken();
-    const sourceResponse = await fetch(API_BASE + "/api/idea-documents/" + encodeURIComponent(doc.id));
+    const sourceResponse = await fetch(
+      API_BASE + "/api/idea-documents/" + encodeURIComponent(doc.id),
+      { headers: workspaceHeaders() }
+    );
     if (!sourceResponse.ok) {
       throw new Error("Could not read the Christina Lab document.");
     }
@@ -409,6 +527,7 @@
   }
 
   function loadRouteData(path = state.route) {
+    if (!state.workspaceReady) return;
     const clean = String(path || "/").split("?")[0] || "/";
     if (clean === "/") loadDashboardData();
     if (clean === "/patterns" || clean === "/analytics") loadPatternsData();
@@ -519,6 +638,11 @@
       toast("Choose a valid content type.");
       return;
     }
+
+    if (!confirmAiShare(
+      "saved-research-idea",
+      "This saved research item's title, metrics, Why / Adapt / Angle notes, and your chosen " + contentType + " format will be sent for idea generation."
+    )) return;
 
     const original = button ? button.textContent : "";
     if (button) {
@@ -639,11 +763,31 @@
   }
 
   async function copyIdeaDocumentText(documentId, label) {
-    const response = await fetch(API_BASE + "/api/idea-documents/" + encodeURIComponent(documentId));
+    const response = await fetch(
+      API_BASE + "/api/idea-documents/" + encodeURIComponent(documentId),
+      { headers: workspaceHeaders() }
+    );
     if (!response.ok) throw new Error("Could not load document text.");
     const text = await response.text();
     await navigator.clipboard.writeText(text);
     toast((label || "Document") + " copied");
+  }
+
+  async function downloadIdeaDocument(doc) {
+    const response = await fetch(
+      API_BASE + "/api/idea-documents/" + encodeURIComponent(doc.id),
+      { headers: workspaceHeaders() }
+    );
+    if (!response.ok) throw new Error("Could not download this document.");
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = String(doc.filename || "christina-lab-document");
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
   }
 
   function ideaProductionPlatform(doc, ideaId) {
@@ -845,7 +989,7 @@
             <summary>More</summary>
             <div class="production-more-menu">
               <div class="production-file-name">${esc(doc.filename)}</div>
-              <a class="btn ghost" href="${API_BASE}/api/idea-documents/${doc.id}">Download file</a>
+              <button class="btn ghost" type="button" data-download-doc="${doc.id}">Download file</button>
               ${doc.cloudUrl && canConvertToGoogleDocs(doc) ? `<button class="btn ghost" type="button" data-google-doc="${doc.id}">Create new Google Doc</button>` : ""}
               <button class="btn danger" type="button" data-delete-doc="${doc.id}">Delete</button>
             </div>
@@ -965,7 +1109,7 @@
                   ? `<a class="btn primary" href="${esc(doc.cloudUrl)}" target="_blank" rel="noopener">Open Google Doc ✓</a>`
                   : `<button class="btn" type="button" data-google-doc="${doc.id}">Create Google Doc</button>`
                 : ""}
-              <a class="btn ghost" href="${API_BASE}/api/idea-documents/${doc.id}">Download</a>
+              <button class="btn ghost" type="button" data-download-doc="${doc.id}">Download</button>
               <button class="btn ghost" type="button" data-delete-doc="${doc.id}">Delete</button>
             </div>
           </div>`).join("")}
@@ -996,6 +1140,12 @@
           toast("Choose a target length between 3 and 20 minutes");
           return;
         }
+        if (!confirmAiShare(
+          "production-pack",
+          "This Idea's title, hook, topic, angle, audience, hypothesis, attached saved-research context, selected platform" +
+            (isLongForm ? ", and target runtime" : "") +
+            " will be sent to generate the Production Pack."
+        )) return;
         const original = generateDocsButton.textContent;
         generateDocsButton.disabled = true;
         generateDocsButton.textContent = "Generating…";
@@ -1030,7 +1180,10 @@
         preview.innerHTML = '<div class="production-preview-loading"><div class="skel"></div><div class="skel"></div></div>';
         preview.scrollIntoView({ behavior: "smooth", block: "start" });
         try {
-          const response = await fetch(API_BASE + "/api/idea-documents/" + encodeURIComponent(doc.id));
+          const response = await fetch(
+            API_BASE + "/api/idea-documents/" + encodeURIComponent(doc.id),
+            { headers: workspaceHeaders() }
+          );
           if (!response.ok) throw new Error("Could not load this document.");
           const raw = await response.text();
           preview.innerHTML = `<div class="production-preview-head">
@@ -1141,6 +1294,21 @@
           toast(error?.message || "Could not create Google Doc");
           button.disabled = false;
           button.textContent = original;
+        }
+      };
+    });
+
+    document.querySelectorAll("[data-download-doc]").forEach((button) => {
+      button.onclick = async () => {
+        const doc = documents.find((item) => String(item.id) === String(button.dataset.downloadDoc));
+        if (!doc) return;
+        button.disabled = true;
+        try {
+          await downloadIdeaDocument(doc);
+        } catch (error) {
+          toast(error?.message || "Could not download document");
+        } finally {
+          button.disabled = false;
         }
       };
     });
@@ -1437,6 +1605,7 @@
     ["Patterns", "/patterns", "grid"],
     ["Analytics", "/analytics", "chart"],
     ["System", null],
+    ["Trust & Access", "/trust", "shield"],
     ["Settings", "/settings", "cog"],
   ];
 
@@ -1457,8 +1626,8 @@
           ).join("")}
         </nav>
         <div class="profile">
-          <img class="avatar" src="https://api.dicebear.com/7.x/avataaars/svg?seed=Christina" alt="Christina avatar" />
-          <div><div>Christina</div><small>Workspace · Live data</small></div>
+          <img class="avatar" src="https://api.dicebear.com/7.x/avataaars/svg?seed=${state.workspaceIsOwner ? "Christina" : "CreatorTester"}" alt="Workspace avatar" />
+          <div><div>${state.workspaceIsOwner ? "Christina" : "Private tester"}</div><small>${state.workspaceIsOwner ? "Owner workspace" : "Isolated alpha workspace"}</small></div>
         </div>
       </aside>
       <div class="main">
@@ -1467,7 +1636,7 @@
           <h1>${title}</h1>
           <div class="grow"></div>
           <input class="search-mini" id="gs" placeholder="Search app…  ⌘K" />
-          <span class="badge">Christina workspace</span>
+          <span class="badge">${state.workspaceIsOwner ? "Owner workspace" : "Private tester workspace"}</span>
         </header>
         <div class="page">${body}</div>
       </div>
@@ -2383,6 +2552,66 @@
       </div>`;
   }
 
+  function trustAccess() {
+    const provider = state.creatorAgentConfigured
+      ? esc((state.creatorAgentProvider || "AI") + (state.creatorAgentModel ? " · " + state.creatorAgentModel : ""))
+      : "Not configured";
+    return `
+      <div class="trust-hero">
+        <div class="eyebrow">PRIVATE ALPHA</div>
+        <h2>You stay in control.</h2>
+        <p>Christina Lab uses AI to help with research, ideas and production material. It does not publish to your social accounts, send messages, or browse your Google Drive.</p>
+      </div>
+
+      <div class="trust-grid">
+        <div class="card trust-card">
+          <h2>Workspace isolation</h2>
+          <p><b>${state.workspaceIsOwner ? "Owner workspace" : "Private tester workspace"}</b></p>
+          <p class="meta">Creator workflow data is scoped by an unguessable private-alpha workspace key. Saved research, Ideas, Production Packs, uploads and Experiments in this workspace are kept separate from other tester workspaces.</p>
+          <p class="meta"><b>Alpha limitation:</b> this is invite-key isolation, not full account authentication yet. Anyone with a tester invite link can access that tester workspace, so treat the link like a password.</p>
+          ${state.workspaceIsOwner ? `
+            <div class="actions" style="justify-content:flex-start">
+              <button class="btn primary" id="createTesterInvite">Create private tester link</button>
+              <button class="btn" id="copyOwnerRecovery">Copy owner recovery link</button>
+            </div>
+            <p class="meta">Save your owner recovery link somewhere private. It is the key to your existing Christina Lab workspace if browser storage is cleared.</p>
+          ` : '<p class="meta">This tester link cannot access the owner workspace or another tester\'s workspace.</p>'}
+        </div>
+
+        <div class="card trust-card">
+          <h2>AI access</h2>
+          <p class="meta">Current provider: <b>${provider}</b></p>
+          <p>When you start an AI action, Christina Lab sends only the context needed for that generation. The first time you use each AI workflow, the app shows exactly what will be shared before continuing.</p>
+          <div class="trust-list">
+            <div>✓ Can generate ideas, scripts, plans and AI scene prompts</div>
+            <div>✓ Can analyze research or transcripts you choose to use</div>
+            <div>✕ Cannot publish to YouTube, TikTok or Instagram</div>
+            <div>✕ Cannot send messages or change social accounts</div>
+            <div>✕ Cannot independently execute actions without you starting the feature</div>
+          </div>
+        </div>
+
+        <div class="card trust-card">
+          <h2>Google Docs</h2>
+          <p>Google Docs is optional. Christina Lab requests <code>drive.file</code>, which lets it create and work with files created through Christina Lab rather than granting access to your whole Drive.</p>
+          <p class="meta">The Google access token is kept in browser memory for the session and is not stored in the Christina Lab database. Christina Lab stores the resulting Google Doc ID/link so it can show “Open Google Doc” later.</p>
+        </div>
+
+        <div class="card trust-card">
+          <h2>What Christina Lab stores</h2>
+          <p class="meta">Inside your private workspace:</p>
+          <div class="trust-list">
+            <div>• Saved Research and creator notes</div>
+            <div>• Ideas and hypotheses</div>
+            <div>• Generated Production Packs and uploaded idea files</div>
+            <div>• Experiments, metrics, results, lessons and decisions</div>
+            <div>• Google Doc IDs/links when you create a Google Doc</div>
+          </div>
+          <p class="meta">AI provider API keys and YouTube API keys stay server-side and are not exposed in the browser.</p>
+        </div>
+      </div>`;
+  }
+
   function settings() {
     return `
       <div class="card" style="padding:14px;margin-bottom:12px">
@@ -2431,6 +2660,13 @@
   }
 
   function render() {
+    if (!state.workspaceReady) {
+      const message = state.workspaceError
+        ? '<div class="workspace-gate"><div class="eyebrow">PRIVATE ALPHA</div><h2>Workspace access required</h2><p>' + esc(state.workspaceError) + '</p><p class="meta">Open the owner recovery link or a private tester invite link. Workspace links are secrets: anyone with the link can access that workspace during the alpha.</p></div>'
+        : '<div class="workspace-gate"><div class="eyebrow">PRIVATE ALPHA</div><h2>Securing your workspace…</h2><p>Verifying private creator access before loading saved research, Ideas and Experiments.</p></div>';
+      $("app").innerHTML = message;
+      return;
+    }
     const path = state.route.split("?")[0] || "/";
     let title = "Dashboard";
     let body = "";
@@ -2470,6 +2706,9 @@
     } else if (path === "/watchlists") {
       title = "Watchlists";
       body = watchlists();
+    } else if (path === "/trust") {
+      title = "Trust & Access";
+      body = trustAccess();
     } else if (path === "/settings") {
       title = "Settings";
       body = settings();
@@ -2676,6 +2915,25 @@
         toast(error?.message || "Could not save experiment result");
       }
     });
+    document.getElementById("createTesterInvite")?.addEventListener("click", async () => {
+      const accessKey = randomWorkspaceKey();
+      const link = workspaceLink(accessKey);
+      try {
+        await navigator.clipboard.writeText(link);
+        toast("Private tester link copied");
+      } catch (_) {
+        window.prompt("Copy this private tester link. Treat it like a password:", link);
+      }
+    });
+    document.getElementById("copyOwnerRecovery")?.addEventListener("click", async () => {
+      const link = workspaceLink(state.workspaceAccessKey);
+      try {
+        await navigator.clipboard.writeText(link);
+        toast("Owner recovery link copied");
+      } catch (_) {
+        window.prompt("Save this owner recovery link somewhere private:", link);
+      }
+    });
     document.getElementById("googleConnect")?.addEventListener("click", async () => {
       try {
         await ensureGoogleAccessToken();
@@ -2736,9 +2994,14 @@
   }
 
   render();
-  loadPublicConfig().then(() => {
-    const path = state.route.split("?")[0] || "/";
-    if (path === "/settings" || path === "/agent") render();
-  });
-  loadRouteData(state.route);
+  (async () => {
+    await loadPublicConfig();
+    await bootstrapWorkspace();
+    render();
+    if (state.workspaceReady) {
+      loadRouteData(state.route);
+      const path = state.route.split("?")[0] || "/";
+      if (path === "/settings" || path === "/agent" || path === "/trust") render();
+    }
+  })();
 })();

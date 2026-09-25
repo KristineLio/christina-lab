@@ -19,6 +19,7 @@ def test_postgres_storage_roundtrip():
             "experiments",
             "idea_documents",
             "ideas",
+            "workspace_saved_research",
             "saved_research",
             "video_analyses",
             "video_snapshots",
@@ -90,4 +91,4 @@ def test_postgres_storage_roundtrip():
                 "SELECT version FROM schema_migrations ORDER BY version"
             ).fetchall()
         ]
-    assert versions == [1, 2, 3, 4]
+    assert versions == [1, 2, 3, 4, 5]
