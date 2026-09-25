@@ -652,6 +652,7 @@
     if (!filename.startsWith(prefix) || !filename.endsWith(".md")) return "";
     const platforms = [
       ["youtube-shorts", "YouTube Shorts"],
+      ["youtube", "YouTube"],
       ["tiktok", "TikTok"],
       ["pinterest", "Pinterest"],
       ["instagram", "Instagram"],
@@ -660,12 +661,30 @@
     return match ? match[1] : "";
   }
 
-  function latestIdeaProductionPlatform(documents, ideaId) {
+  function ideaProductionDuration(doc, ideaId) {
+    const filename = String(doc?.filename || "").toLowerCase();
+    const marker = "idea-" + String(ideaId) + "-youtube-";
+    if (!filename.startsWith(marker)) return null;
+    const match = filename.slice(marker.length).match(/^(\d+)min-/);
+    return match ? Number(match[1]) : null;
+  }
+
+  function latestIdeaProductionPlatform(documents, ideaId, ideaType = "Short") {
     const generated = documents
       .filter((doc) => ideaProductionPlatform(doc, ideaId))
       .slice()
       .sort((a, b) => String(b.uploadedAt || "").localeCompare(String(a.uploadedAt || "")));
-    return generated.length ? ideaProductionPlatform(generated[0], ideaId) : "YouTube Shorts";
+    return generated.length
+      ? ideaProductionPlatform(generated[0], ideaId)
+      : (String(ideaType || "") === "Short" ? "YouTube Shorts" : "YouTube");
+  }
+
+  function latestIdeaProductionDuration(documents, ideaId) {
+    const generated = documents
+      .filter((doc) => ideaProductionPlatform(doc, ideaId) === "YouTube" && ideaProductionDuration(doc, ideaId))
+      .slice()
+      .sort((a, b) => String(b.uploadedAt || "").localeCompare(String(a.uploadedAt || "")));
+    return generated.length ? ideaProductionDuration(generated[0], ideaId) : 7;
   }
 
   function isTextIdeaDocument(doc) {
@@ -744,7 +763,12 @@
     try {
       const payload = await fetchJson("/api/ideas/" + encodeURIComponent(idea.id) + "/documents");
       const items = Array.isArray(payload.items) ? payload.items : [];
-      renderIdeaDocumentsModal(idea, items, latestIdeaProductionPlatform(items, idea.id));
+      renderIdeaDocumentsModal(
+        idea,
+        items,
+        latestIdeaProductionPlatform(items, idea.id, idea.type),
+        latestIdeaProductionDuration(items, idea.id)
+      );
     } catch (error) {
       m.innerHTML = `<div class="modal idea-modal production-pack-modal">
         <h2 style="margin:0 0 6px;font-size:16px">Production Pack</h2>
@@ -755,8 +779,18 @@
     }
   }
 
-  function renderIdeaDocumentsModal(idea, documents, selectedPlatform = "YouTube Shorts") {
+  function renderIdeaDocumentsModal(idea, documents, selectedPlatform = "", selectedDurationMinutes = null) {
     const m = $("modal");
+    const isLongForm = String(idea.type || "") !== "Short";
+    const allowedPlatforms = isLongForm
+      ? ["YouTube"]
+      : ["YouTube Shorts", "TikTok", "Pinterest", "Instagram"];
+    if (!allowedPlatforms.includes(selectedPlatform)) {
+      selectedPlatform = isLongForm ? "YouTube" : "YouTube Shorts";
+    }
+    const targetDurationMinutes = isLongForm
+      ? Math.min(20, Math.max(3, Number(selectedDurationMinutes) || latestIdeaProductionDuration(documents, idea.id) || 7))
+      : null;
     const kinds = {
       script: "Script",
       plan: "Production Plan",
@@ -766,7 +800,9 @@
       other: "Other",
     };
     const productionKinds = ["script", "plan", "video_prompt", "photo_reference"];
-    const generatedDocs = documents.filter((doc) => ideaProductionPlatform(doc, idea.id));
+    const generatedDocs = documents.filter((doc) =>
+      allowedPlatforms.includes(ideaProductionPlatform(doc, idea.id))
+    );
     const selectedGenerated = generatedDocs
       .filter((doc) => ideaProductionPlatform(doc, idea.id) === selectedPlatform)
       .slice()
@@ -776,7 +812,8 @@
       if (productionKinds.includes(doc.kind) && !latestByKind[doc.kind]) latestByKind[doc.kind] = doc;
     });
     const packDocs = productionKinds.map((kind) => latestByKind[kind]).filter(Boolean);
-    const additionalDocs = documents.filter((doc) => !ideaProductionPlatform(doc, idea.id));
+    const generatedDocIds = new Set(generatedDocs.map((doc) => String(doc.id)));
+    const additionalDocs = documents.filter((doc) => !generatedDocIds.has(String(doc.id)));
     const generatedPlatforms = [...new Set(generatedDocs.map((doc) => ideaProductionPlatform(doc, idea.id)).filter(Boolean))];
 
     const productionCard = (doc) => {
@@ -788,7 +825,7 @@
         : "";
       return `<article class="production-asset-card">
         <div class="production-asset-main">
-          <div class="production-asset-kicker">${esc(selectedPlatform)} · ${esc(idea.type || "Content")}</div>
+          <div class="production-asset-kicker">${esc(selectedPlatform)} · ${esc(idea.type || "Content")}${isLongForm ? " · " + esc(String(ideaProductionDuration(doc, idea.id) || targetDurationMinutes)) + " min target" : ""}</div>
           <h3>${esc(meta.title)}</h3>
           <p>${esc(meta.description)}</p>
           ${doc.cloudUploadedAt ? '<div class="production-sync-state">✓ Google Docs synced</div>' : ""}
@@ -825,25 +862,34 @@
           <div>
             <span class="badge strong">Generate</span>
             <h3>Build a production pack</h3>
-            <p class="meta">Idea format: <b>${esc(idea.type || "Long-form")}</b>. Choose where this piece will be published.</p>
+            <p class="meta">Idea format: <b>${esc(idea.type || "Long-form")}</b>. ${isLongForm ? "Choose the target YouTube runtime; the script and full production timeline will be sized to it." : "Choose where this piece will be published."}</p>
           </div>
         </div>
-        <div class="agent-production-controls">
+        <div class="agent-production-controls ${isLongForm ? "long-form-production-controls" : ""}">
           <label>Platform
             <select id="ideaDocsPlatform">
-              ${["YouTube Shorts", "TikTok", "Pinterest", "Instagram"].map((platform) =>
+              ${allowedPlatforms.map((platform) =>
                 `<option value="${esc(platform)}" ${platform === selectedPlatform ? "selected" : ""}>${esc(platform)}</option>`
               ).join("")}
             </select>
           </label>
+          ${isLongForm ? `<label>Target video length
+            <div class="duration-input-wrap">
+              <input id="ideaDocsDuration" type="number" min="3" max="20" step="1" value="${targetDurationMinutes}" />
+              <span>minutes</span>
+            </div>
+            <small>Aim for 3–20 minutes. The script and timestamped plan will be sized to this target.</small>
+          </label>` : ""}
           <button class="btn primary" type="button" id="generateIdeaDocs">${packDocs.length ? "Regenerate production pack" : "Generate production pack"}</button>
         </div>
-        ${generatedPlatforms.length
+        ${generatedPlatforms.length && !isLongForm
           ? `<div class="production-pack-tabs">
               <span class="meta">Available packs:</span>
               ${generatedPlatforms.map((platform) => `<button class="btn ${platform === selectedPlatform ? "primary" : "ghost"}" type="button" data-pack-platform="${esc(platform)}">${esc(platform)}</button>`).join("")}
             </div>`
-          : ""}
+          : isLongForm && packDocs.length
+            ? `<div class="production-pack-tabs"><span class="meta">Current pack: YouTube · ${targetDurationMinutes} min target · 16:9</span></div>`
+            : ""}
       </section>
 
       <section id="ideaDocumentPreview" class="production-preview" hidden></section>
@@ -851,7 +897,7 @@
       <section class="production-assets-section">
         <div class="section-label-row production-section-label">
           <div>
-            <div class="eyebrow">${esc(selectedPlatform.toUpperCase())}</div>
+            <div class="eyebrow">${esc(selectedPlatform.toUpperCase())}${isLongForm ? " · " + esc(String(targetDurationMinutes)) + " MIN TARGET" : ""}</div>
             <h2>Your production assets</h2>
           </div>
           <p>Read them here, copy what you need, or move editable documents into Google Docs.</p>
@@ -859,7 +905,7 @@
         ${packDocs.length
           ? `<div class="production-assets-grid">${packDocs.map(productionCard).join("")}</div>`
           : `<div class="production-pack-empty">
-              <h3>No ${esc(selectedPlatform)} production pack yet.</h3>
+              <h3>No ${esc(selectedPlatform)}${isLongForm ? " " + esc(String(targetDurationMinutes)) + "-minute" : ""} production pack yet.</h3>
               <p>Generate one above and Christina Lab will create the Script, Production Plan, AI Video Prompt and Photo Reference.</p>
             </div>`}
       </section>
@@ -927,29 +973,38 @@
 
     const platformSelect = $("ideaDocsPlatform");
     if (platformSelect) {
-      platformSelect.onchange = () => renderIdeaDocumentsModal(idea, documents, platformSelect.value);
+      platformSelect.onchange = () => renderIdeaDocumentsModal(idea, documents, platformSelect.value, targetDurationMinutes);
     }
     document.querySelectorAll("[data-pack-platform]").forEach((button) => {
-      button.onclick = () => renderIdeaDocumentsModal(idea, documents, button.dataset.packPlatform);
+      button.onclick = () => renderIdeaDocumentsModal(idea, documents, button.dataset.packPlatform, targetDurationMinutes);
     });
 
     const generateDocsButton = $("generateIdeaDocs");
     if (generateDocsButton) {
       generateDocsButton.onclick = async () => {
         const platform = $("ideaDocsPlatform")?.value || selectedPlatform;
+        const durationInput = $("ideaDocsDuration");
+        const requestedDuration = isLongForm ? Number(durationInput?.value || targetDurationMinutes) : null;
+        if (isLongForm && (!Number.isFinite(requestedDuration) || requestedDuration < 3 || requestedDuration > 20)) {
+          toast("Choose a target length between 3 and 20 minutes");
+          return;
+        }
         const original = generateDocsButton.textContent;
         generateDocsButton.disabled = true;
         generateDocsButton.textContent = "Generating…";
         try {
           const result = await apiJson("/api/ideas/" + encodeURIComponent(idea.id) + "/agent-documents", {
             method: "POST",
-            body: { platform },
+            body: {
+              platform,
+              targetDurationMinutes: isLongForm ? requestedDuration : null,
+            },
           });
           const payload = await fetchJson("/api/ideas/" + encodeURIComponent(idea.id) + "/documents");
           const items = Array.isArray(payload.items) ? payload.items : [];
           idea.documentCount = items.length;
           toast((result.documents || []).length + " production assets generated");
-          renderIdeaDocumentsModal(idea, items, platform);
+          renderIdeaDocumentsModal(idea, items, platform, isLongForm ? requestedDuration : null);
         } catch (error) {
           toast(error?.message || "AI assistance could not generate the production pack");
           generateDocsButton.disabled = false;
@@ -1053,7 +1108,7 @@
         const items = Array.isArray(payload.items) ? payload.items : [];
         idea.documentCount = items.length;
         toast("File added");
-        renderIdeaDocumentsModal(idea, items, selectedPlatform);
+        renderIdeaDocumentsModal(idea, items, selectedPlatform, targetDurationMinutes);
       } catch (error) {
         toast(error?.message || "Could not upload document");
         if (submit) submit.disabled = false;
@@ -1074,7 +1129,7 @@
           idea.documentCount = items.length;
           toast("Google Doc ready");
           if (created?.webViewLink) window.open(created.webViewLink, "_blank", "noopener");
-          renderIdeaDocumentsModal(idea, items, selectedPlatform);
+          renderIdeaDocumentsModal(idea, items, selectedPlatform, targetDurationMinutes);
         } catch (error) {
           toast(error?.message || "Could not create Google Doc");
           button.disabled = false;
@@ -1098,7 +1153,7 @@
           const items = Array.isArray(payload.items) ? payload.items : [];
           idea.documentCount = items.length;
           toast("Document removed");
-          renderIdeaDocumentsModal(idea, items, selectedPlatform);
+          renderIdeaDocumentsModal(idea, items, selectedPlatform, targetDurationMinutes);
         } catch (error) {
           toast(error?.message || "Could not remove document");
           button.disabled = false;

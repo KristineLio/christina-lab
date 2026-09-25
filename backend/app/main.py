@@ -119,6 +119,7 @@ class SavedResearchAgentIdeaRequest(BaseModel):
 
 class IdeaAgentProductionDocsRequest(BaseModel):
     platform: str = Field(min_length=1, max_length=40)
+    targetDurationMinutes: int | None = Field(default=None, ge=3, le=20)
 
 
 class CreatorAgentResearchRequest(BaseModel):
@@ -485,21 +486,37 @@ async def generate_agent_documents_for_idea(
         )
 
     platform = payload.platform.strip()
-    allowed_platforms = {
-        "YouTube Shorts",
-        "TikTok",
-        "Pinterest",
-        "Instagram",
-    }
-    if platform not in allowed_platforms:
-        raise HTTPException(
-            status_code=422,
-            detail="Choose YouTube Shorts, TikTok, Pinterest, or Instagram.",
-        )
 
     idea = snapshot_store.get_idea(idea_id)
     if idea is None:
         raise HTTPException(status_code=404, detail="Idea not found.")
+
+    content_type = "Short" if str(idea.get("type") or "") == "Short" else "Long-form"
+    if content_type == "Short":
+        allowed_platforms = {
+            "YouTube Shorts",
+            "TikTok",
+            "Pinterest",
+            "Instagram",
+        }
+        if platform not in allowed_platforms:
+            raise HTTPException(
+                status_code=422,
+                detail="For Short ideas, choose YouTube Shorts, TikTok, Pinterest, or Instagram.",
+            )
+        target_duration_minutes = None
+    else:
+        if platform != "YouTube":
+            raise HTTPException(
+                status_code=422,
+                detail="Long-form ideas currently use YouTube as the production platform.",
+            )
+        if payload.targetDurationMinutes is None:
+            raise HTTPException(
+                status_code=422,
+                detail="Choose a target video length for the long-form YouTube production pack.",
+            )
+        target_duration_minutes = payload.targetDurationMinutes
 
     source_research = None
     source_video_id = str(idea.get("sourceVideoId") or "").strip()
@@ -518,6 +535,7 @@ async def generate_agent_documents_for_idea(
             idea=idea,
             source_research=source_research,
             platform=platform,
+            target_duration_minutes=target_duration_minutes,
         )
     except CreatorAgentError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
@@ -525,6 +543,11 @@ async def generate_agent_documents_for_idea(
     safe_platform = "-".join(
         part for part in re.sub(r"[^a-z0-9]+", "-", platform.lower()).split("-") if part
     ) or "platform"
+    safe_duration = (
+        f"-{target_duration_minutes}min"
+        if target_duration_minutes is not None
+        else ""
+    )
 
     documents = []
     for kind, suffix, body in (
@@ -540,7 +563,7 @@ async def generate_agent_documents_for_idea(
             snapshot_store.save_idea_document(
                 idea_id,
                 kind=kind,
-                filename=f"idea-{idea_id}-{safe_platform}-{suffix}.md",
+                filename=f"idea-{idea_id}-{safe_platform}{safe_duration}-{suffix}.md",
                 content_type="text/markdown; charset=utf-8",
                 content=(text_body + "\n").encode("utf-8"),
             )
@@ -548,8 +571,9 @@ async def generate_agent_documents_for_idea(
 
     return {
         "ideaId": idea_id,
-        "contentType": str(idea.get("type") or "Long-form"),
+        "contentType": content_type,
         "platform": platform,
+        "targetDurationMinutes": target_duration_minutes,
         "documents": documents,
         "provider": generated.get("_agentProvider") or creator_agent_provider(),
         "model": generated.get("_agentModel") or creator_agent_model(),

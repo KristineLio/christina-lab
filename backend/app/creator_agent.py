@@ -598,9 +598,19 @@ async def generate_idea_production_docs(
     idea: dict[str, Any],
     source_research: dict[str, Any] | None,
     platform: str,
+    target_duration_minutes: int | None = None,
 ) -> dict[str, Any]:
     content_type = "Short" if str(idea.get("type") or "") == "Short" else "Long-form"
     platform = str(platform or "").strip()
+    is_long_form = content_type == "Long-form"
+    duration_minutes = int(target_duration_minutes or 0) if is_long_form else 0
+    target_runtime = f"{duration_minutes} minutes" if duration_minutes else "Not applicable"
+    target_word_count = (
+        f"approximately {duration_minutes * 125}-{duration_minutes * 150} spoken words"
+        if duration_minutes
+        else "Not applicable"
+    )
+    orientation = "16:9" if is_long_form else "9:16"
 
     prompt = f"""CHRISTINA LAB IDEA
 {json.dumps(idea, ensure_ascii=False)[:14000]}
@@ -614,15 +624,25 @@ IDEA CONTENT TYPE
 USER-CHOSEN PRODUCTION PLATFORM
 {platform}
 
+USER-CHOSEN TARGET RUNTIME
+{target_runtime}
+
+TARGET NARRATION BUDGET
+{target_word_count}
+
+TARGET ORIENTATION
+{orientation}
+
 Create four production-ready documents for this existing idea:
 1. script
 2. productionPlan
 3. videoPrompt
 4. photoReference
 
-The idea's content type and the user's platform choice are HARD CONSTRAINTS. Do not change either.
+The idea's content type, the user's platform choice, and—when Long-form—the target runtime are HARD CONSTRAINTS. Do not change them.
 
 PLATFORM RULES
+- YouTube: long-form horizontal 16:9; strong opening hook; sustained curiosity; clear visual progression; section pacing appropriate to the requested runtime; prioritize real screen capture/product proof where available.
 - YouTube Shorts: vertical 9:16; clear first-second hook; concise explanation; readable captions; strong visual proof.
 - TikTok: vertical 9:16; immediate conversational hook; fast creator pacing; natural phone-first visual language.
 - Pinterest: vertical 9:16; clean, save-worthy, visually organized framing; strong readable text; useful/inspirational rather than chaotic pacing.
@@ -636,26 +656,35 @@ If the idea is Short:
 - keep one core idea and one clear payoff.
 
 If the idea is Long-form:
-- script must be a structured long-form first draft or detailed narration outline appropriate to the idea;
-- productionPlan must cover the full long-form video;
+- platform is YouTube and orientation is 16:9;
+- target runtime is {target_runtime}; treat it as a hard production constraint, not a suggestion;
+- script must be a complete long-form first draft sized for roughly {target_word_count}; do not pad weak material merely to hit the word count;
+- include an ESTIMATED RUNTIME and ESTIMATED SPOKEN WORD COUNT near the top of the script;
+- structure the story for retention: hook -> setup/problem -> decisions/process -> proof/demo -> payoff/lesson -> close;
+- productionPlan must cover the FULL requested runtime with timestamped sections whose total duration is approximately {target_runtime};
+- each production-plan section must say what the viewer hears and sees, including talking-head/faceless narration, real screen recording, project footage, B-roll, overlays, or optional AI-generated inserts;
 - videoPrompt must NOT pretend one generative-video call can create the whole long-form video;
-- instead, videoPrompt should be for the strongest platform-compatible opening/hero/teaser scene that supports the long-form piece;
-- clearly label which remaining long-form footage must be real capture, screen recording, B-roll, or separately generated scenes.
+- videoPrompt should generate only the strongest 6-10 second opening/hero/teaser scene in 16:9 that supports the full YouTube video;
+- clearly label all remaining footage as REAL CAPTURE, SCREEN RECORDING, B-ROLL, or SEPARATELY GENERATED INSERTS.
 
 SCRIPT DOCUMENT
-- Start with a heading that states Content type and Platform.
+- Start with a heading that states Content type, Platform, orientation, and target runtime when Long-form.
+- For Long-form, include estimated runtime and estimated spoken word count.
 - Use the existing idea's title, hook, angle, audience and hypothesis as evidence.
 - Do not invent project facts, results, metrics, income, tests, personal history, or outcomes.
+- If required proof is missing, mark it as REQUIRED CAPTURE rather than inventing it.
 - Make wording original; never copy the source creator's script or title.
 
 PRODUCTION PLAN DOCUMENT
-- Include platform, content type, target orientation, pacing, asset needs, shot/scene plan, on-screen text, edit notes, and definition of done.
+- Include platform, content type, target runtime when relevant, orientation, pacing, asset needs, timestamped shot/scene plan, on-screen text, edit notes, and definition of done.
+- For Long-form, the timeline must cover approximately the full requested {target_runtime}.
 - Separate VERIFIED/SUPPLIED material from REQUIRED CAPTURE and OPTIONAL AI-GENERATED material.
 - When source research includes a thumbnail URL, label it only as an available SOURCE THUMBNAIL, not as proof that it is the correct frame for the new video.
 
 VIDEO PROMPT DOCUMENT
 - Must contain one clearly marked, copy-paste-ready AI Studio / Veo-style prompt.
-- State Platform, 9:16 aspect ratio, suggested duration, tone, subject/action, environment, camera behavior, lighting, pacing, on-screen text, narration/voiceover intent, and ending.
+- State Platform, {orientation} aspect ratio, suggested generated-scene duration, tone, subject/action, environment, camera behavior, lighting, pacing, on-screen text, narration/voiceover intent, and ending.
+- For Long-form, make explicit that this prompt is for an OPENING/HERO INSERT only, not the whole {target_runtime} YouTube video.
 - Tell the model to use a supplied reference image for composition/environment/continuity only.
 - Do not instruct it to clone or impersonate an identifiable real person.
 - If a person is needed, request an original/generic presenter unless the user has rights to reproduce the likeness.
@@ -671,20 +700,23 @@ Include:
 - Environment/background
 - Props/screens that may appear
 - Lighting and mood
-- Orientation: 9:16
+- Orientation: {orientation}
 - What must remain readable / what must not be fabricated
 - A clearly marked IMAGE GENERATION PROMPT that can be used to create the still reference when no suitable real image exists
 - A clearly marked REAL CAPTURE INSTRUCTION describing what screenshot/photo to take if a real project/source image is preferable
 
-The output must be practical enough that the user can open Idea Documents, copy the video prompt, prepare the photo reference, and start producing immediately.
+The output must be practical enough that the creator can read the Script and Production Plan directly in Christina Lab, copy the AI video prompt when useful, prepare the reference image, and start producing immediately.
 """
 
     result, provider_attempt = await _structured_response(
-        instructions=SYSTEM_INSTRUCTIONS + """
+        instructions=SYSTEM_INSTRUCTIONS + f"""
 Idea Production Documents rules:
 - The user's selected platform is a hard constraint.
 - The idea's Short / Long-form format is a hard constraint.
+- For Long-form, the user's selected target runtime ({target_runtime}) is a hard constraint.
+- Long-form YouTube uses 16:9. Short-form platform packs use 9:16.
 - Produce executable production material, not generic brainstorming.
+- Never imply one AI-generated clip can replace the complete long-form production workflow.
 - A photo-reference document is a reference brief/capture-or-generation instruction unless a real image has actually been supplied.
 - Never imply that an image, screenshot, project behavior, or performance result exists unless the supplied evidence proves it.
 """,
