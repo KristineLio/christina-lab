@@ -342,6 +342,73 @@ body,
 
 
 
+
+/* Experiments · full edit flow */
+.experiment-page-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+.experiment-edit-modal {
+  width: min(900px, 94vw);
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+}
+.experiment-edit-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.experiment-edit-form {
+  gap: 10px;
+}
+.experiment-edit-grid,
+.experiment-edit-metrics {
+  display: grid;
+  gap: 10px 12px;
+}
+.experiment-edit-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.experiment-edit-metrics {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+.experiment-edit-form textarea {
+  resize: vertical;
+}
+.experiment-edit-actions {
+  position: sticky;
+  bottom: -18px;
+  margin-top: 2px;
+  padding-top: 10px;
+  background: var(--surf);
+  border-top: 1px solid var(--line);
+  justify-content: flex-end;
+}
+@media (max-width: 900px) {
+  .experiment-edit-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 720px) {
+  .experiment-page-head,
+  .experiment-edit-head {
+    display: block;
+  }
+  .experiment-page-head .btn,
+  .experiment-edit-head .btn {
+    margin-top: 10px;
+  }
+  .experiment-edit-grid,
+  .experiment-edit-metrics {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* Idea Documents · Agent production pack */
 .agent-production-docs {
   margin: 12px 0 14px;

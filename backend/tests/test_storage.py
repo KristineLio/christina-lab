@@ -928,3 +928,47 @@ def test_legacy_cleanup_preserves_saved_and_idea_linked_research(tmp_path):
     assert store.get_idea(idea["id"])["sourceVideoId"] == "idea-video"
     assert store.get_idea(idea["id"])["documentCount"] == 1
     assert store.workflow_summary()["summary"]["experiments"] == 1
+
+
+
+def test_experiment_update_can_edit_core_fields(tmp_path):
+    db = tmp_path / "christina_lab.sqlite3"
+    store = SnapshotStore(f"sqlite:///{db}")
+
+    idea = store.create_idea(
+        title="Original idea",
+        topic="Original topic",
+        content_type="Short",
+        hypothesis="Original hypothesis",
+    )
+    experiment = store.create_experiment(
+        idea_id=idea["id"],
+        name="Original experiment",
+        status="Draft",
+    )
+
+    updated = store.update_experiment(
+        experiment["id"],
+        {
+            "name": "Edited experiment",
+            "topic": "Edited topic",
+            "format": "Long-form",
+            "hypothesis": "Edited hypothesis",
+            "status": "Ready",
+            "decision": "TEST",
+            "v24": 123,
+            "retention": 42.5,
+            "lesson": "Learned something useful",
+        },
+    )
+
+    assert updated is not None
+    assert updated["name"] == "Edited experiment"
+    assert updated["topic"] == "Edited topic"
+    assert updated["format"] == "Long-form"
+    assert updated["hypothesis"] == "Edited hypothesis"
+    assert updated["status"] == "Ready"
+    assert updated["decision"] == "TEST"
+    assert updated["v24"] == 123
+    assert updated["retention"] == 42.5
+    assert updated["lesson"] == "Learned something useful"

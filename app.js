@@ -953,6 +953,150 @@
     };
   }
 
+  function openExperimentEditModal(exp) {
+    if (!exp) return;
+    const m = $("modal");
+    const publishedDate = String(exp.publishedAt || "").slice(0, 10);
+    const formats = ["Short", "Long-form", "Livestream"];
+    if (exp.format && !formats.includes(exp.format)) formats.unshift(exp.format);
+
+    m.hidden = false;
+    m.innerHTML = `<div class="modal experiment-edit-modal">
+      <div class="experiment-edit-head">
+        <div>
+          <h2 style="margin:0 0 6px;font-size:16px">Edit experiment</h2>
+          <p class="meta" style="margin:0">EXP-${String(exp.id).padStart(3, "0")} · source idea #${exp.ideaId}</p>
+        </div>
+        <button class="btn ghost" type="button" id="cancelM">Close</button>
+      </div>
+
+      <form class="form experiment-edit-form" id="experimentEditForm">
+        <div class="experiment-edit-grid">
+          <label>Experiment name
+            <input name="name" required value="${esc(exp.name || "")}" />
+          </label>
+          <label>Topic
+            <input name="topic" value="${esc(exp.topic || "")}" />
+          </label>
+          <label>Format
+            <select name="format">
+              ${formats.map((value) => `<option value="${esc(value)}" ${value === exp.format ? "selected" : ""}>${esc(value)}</option>`).join("")}
+            </select>
+          </label>
+          <label>Status
+            <select name="status">
+              <option ${exp.status === "Draft" ? "selected" : ""}>Draft</option>
+              <option ${exp.status === "Ready" ? "selected" : ""}>Ready</option>
+              <option ${exp.status === "Published" ? "selected" : ""}>Published</option>
+            </select>
+          </label>
+          <label>Decision
+            <select name="decision">
+              <option value="UNDECIDED" ${exp.decision === "UNDECIDED" ? "selected" : ""}>Undecided</option>
+              <option ${exp.decision === "GO" ? "selected" : ""}>GO</option>
+              <option ${exp.decision === "TEST" ? "selected" : ""}>TEST</option>
+              <option ${exp.decision === "HOLD" ? "selected" : ""}>HOLD</option>
+            </select>
+          </label>
+          <label>Published date
+            <input name="publishedAt" type="date" value="${esc(publishedDate)}" />
+          </label>
+        </div>
+
+        <label>Hypothesis
+          <textarea name="hypothesis" rows="3">${esc(exp.hypothesis || "")}</textarea>
+        </label>
+
+        <div class="experiment-edit-metrics">
+          <label>24h views
+            <input name="v24" type="number" min="0" value="${exp.v24 ?? ""}" />
+          </label>
+          <label>7d views
+            <input name="v7" type="number" min="0" value="${exp.v7 ?? ""}" />
+          </label>
+          <label>Retention %
+            <input name="retention" type="number" min="0" max="100" step="0.1" value="${exp.retention ?? ""}" />
+          </label>
+          <label>Subscriber gain
+            <input name="subs" type="number" value="${exp.subs ?? ""}" />
+          </label>
+          <label>CTR %
+            <input name="ctr" type="number" min="0" max="100" step="0.1" value="${exp.ctr ?? ""}" />
+          </label>
+        </div>
+
+        <label>Result summary
+          <textarea name="result" rows="2">${esc(exp.result || "")}</textarea>
+        </label>
+        <label>What did we learn?
+          <textarea name="lesson" rows="3">${esc(exp.lesson || "")}</textarea>
+        </label>
+        <label>Next test
+          <textarea name="next" rows="2">${esc(exp.next || "")}</textarea>
+        </label>
+
+        <div class="actions experiment-edit-actions">
+          <button class="btn ghost" type="button" id="cancelExperimentEdit">Cancel</button>
+          <button class="btn primary" type="submit">Save changes</button>
+        </div>
+      </form>
+    </div>`;
+
+    const close = () => (m.hidden = true);
+    $("cancelM").onclick = close;
+    $("cancelExperimentEdit").onclick = close;
+    m.onclick = (e) => {
+      if (e.target === m) close();
+    };
+
+    $("experimentEditForm").onsubmit = async (e) => {
+      e.preventDefault();
+      const submit = e.submitter;
+      if (submit) {
+        submit.disabled = true;
+        submit.textContent = "Saving…";
+      }
+      const fd = new FormData(e.target);
+      const numberOrNull = (name) => {
+        const raw = String(fd.get(name) ?? "").trim();
+        return raw === "" ? null : Number(raw);
+      };
+      try {
+        await apiJson("/api/experiments/" + Number(exp.id), {
+          method: "PATCH",
+          body: {
+            name: String(fd.get("name") || "").trim(),
+            topic: String(fd.get("topic") || "").trim(),
+            format: String(fd.get("format") || "").trim(),
+            hypothesis: String(fd.get("hypothesis") || "").trim(),
+            status: String(fd.get("status") || "Draft"),
+            decision: String(fd.get("decision") || "UNDECIDED"),
+            publishedAt: String(fd.get("publishedAt") || "").trim() || null,
+            v24: numberOrNull("v24"),
+            v7: numberOrNull("v7"),
+            retention: numberOrNull("retention"),
+            subs: numberOrNull("subs"),
+            ctr: numberOrNull("ctr"),
+            result: String(fd.get("result") || "").trim(),
+            lesson: String(fd.get("lesson") || "").trim(),
+            next: String(fd.get("next") || "").trim(),
+          },
+        });
+        m.hidden = true;
+        state.workflowLoaded = false;
+        await loadWorkflowData(true);
+        toast("Experiment updated");
+        render();
+      } catch (error) {
+        toast(error?.message || "Could not update experiment");
+        if (submit) {
+          submit.disabled = false;
+          submit.textContent = "Save changes";
+        }
+      }
+    };
+  }
+
   const NAV = [
     ["Overview", null],
     ["Dashboard", "/", "dash"],
@@ -1646,7 +1790,7 @@
 
       ${e.length ? `<div class="card">
         <table class="table">
-          <thead><tr><th>Experiment</th><th>Topic</th><th>Status</th><th>24h</th><th>7d</th><th>Ret.</th><th>Subs</th><th>Decision</th></tr></thead>
+          <thead><tr><th>Experiment</th><th>Topic</th><th>Status</th><th>24h</th><th>7d</th><th>Ret.</th><th>Subs</th><th>Decision</th><th></th></tr></thead>
           <tbody>
             ${e.map((x) => `<tr>
               <td><a href="#/experiment/${x.id}">EXP-${String(x.id).padStart(3, "0")}</a><div class="meta">${esc(x.name)}</div></td>
@@ -1664,6 +1808,7 @@
                   <option ${x.decision === "HOLD" ? "selected" : ""}>HOLD</option>
                 </select>
               </td>
+              <td><button class="btn" type="button" data-edit-exp="${x.id}">Edit</button></td>
             </tr>`).join("")}
           </tbody>
         </table>
@@ -1688,8 +1833,14 @@
     }
     const idea = state.ideas.find((item) => String(item.id) === String(x.ideaId));
     return `
-      <p class="sub">EXP-${String(x.id).padStart(3, "0")} · ${esc(x.status)} · source idea ${idea ? esc(idea.title) : "#" + x.ideaId}</p>
-      <h2 style="margin-top:0">${esc(x.name)}</h2>
+      <div class="experiment-page-head">
+        <div>
+          <p class="sub" style="margin-bottom:4px">EXP-${String(x.id).padStart(3, "0")} · ${esc(x.status)} · source idea ${idea ? esc(idea.title) : "#" + x.ideaId}</p>
+          <h2 style="margin:0">${esc(x.name)}</h2>
+          <div class="meta" style="margin-top:5px">${esc(x.topic || "Unspecified")} · ${esc(x.format || "")}</div>
+        </div>
+        <button class="btn primary" type="button" data-edit-exp="${x.id}">Edit experiment</button>
+      </div>
       <div class="card" style="padding:14px;margin-bottom:12px">
         <div class="meta">Hypothesis</div>
         <p>${esc(x.hypothesis || "No hypothesis recorded yet.")}</p>
@@ -2079,6 +2230,12 @@
       button.onclick = () => {
         const idea = state.ideas.find((item) => String(item.id) === String(button.dataset.createExp));
         if (idea) openExperimentModal(idea);
+      };
+    });
+    document.querySelectorAll("[data-edit-exp]").forEach((button) => {
+      button.onclick = () => {
+        const exp = state.experiments.find((item) => String(item.id) === String(button.dataset.editExp));
+        if (exp) openExperimentEditModal(exp);
       };
     });
     document.querySelectorAll(".dec").forEach((s) => {

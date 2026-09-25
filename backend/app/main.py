@@ -200,6 +200,8 @@ class ExperimentCreate(BaseModel):
 
 class ExperimentUpdate(BaseModel):
     name: str | None = Field(default=None, max_length=240)
+    topic: str | None = Field(default=None, max_length=240)
+    format: str | None = Field(default=None, max_length=40)
     hypothesis: str | None = Field(default=None, max_length=4000)
     status: str | None = Field(default=None, max_length=20)
     publishedAt: str | None = Field(default=None, max_length=40)
