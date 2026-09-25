@@ -115,6 +115,7 @@
     workspaceType: "",
     workspaceIsOwner: false,
     workspaceError: "",
+    ownerRecoveryAvailable: false,
   };
 
   function writeLiveSession() {
@@ -246,13 +247,16 @@
 
   async function bootstrapWorkspace() {
     state.workspaceError = "";
-    const queryKey = new URLSearchParams(location.search).get("workspace");
-    let accessKey = validWorkspaceKey(queryKey)
-      ? queryKey
-      : String(localStorage.getItem(WORKSPACE_STORAGE_KEY) || "");
+    state.workspaceReady = false;
+    state.ownerRecoveryAvailable = false;
+
+    const params = new URLSearchParams(location.search);
+    const rawQueryKey = params.get("workspace");
+    const queryKey = validWorkspaceKey(rawQueryKey) ? rawQueryKey : "";
+    const storedOwnerKey = String(localStorage.getItem(WORKSPACE_STORAGE_KEY) || "");
+    let accessKey = queryKey || (validWorkspaceKey(storedOwnerKey) ? storedOwnerKey : "");
 
     if (!validWorkspaceKey(accessKey)) {
-      accessKey = "";
       try {
         const response = await fetch(API_BASE + "/api/workspace/claim-owner", { method: "POST" });
         const payload = await response.json().catch(() => ({}));
@@ -261,14 +265,10 @@
         }
         accessKey = String(payload.accessKey || "");
         if (!validWorkspaceKey(accessKey)) throw new Error("Owner workspace claim did not return a valid key.");
-        localStorage.setItem(WORKSPACE_STORAGE_KEY, accessKey);
       } catch (error) {
         state.workspaceError = error?.message || "Open Christina Lab from a valid owner or tester invite link.";
-        state.workspaceReady = false;
         return;
       }
-    } else {
-      localStorage.setItem(WORKSPACE_STORAGE_KEY, accessKey);
     }
 
     state.workspaceAccessKey = accessKey;
@@ -278,6 +278,33 @@
       const status = await apiJson("/api/workspace/status");
       state.workspaceType = String(status.workspaceType || "tester");
       state.workspaceIsOwner = Boolean(status.isOwner);
+
+      if (state.workspaceIsOwner) {
+        localStorage.setItem(WORKSPACE_STORAGE_KEY, accessKey);
+        state.ownerRecoveryAvailable = true;
+      } else {
+        // Tester links are intentionally temporary in this browser. Never let
+        // one replace the persisted owner recovery key.
+        if (queryKey && storedOwnerKey === queryKey) {
+          localStorage.removeItem(WORKSPACE_STORAGE_KEY);
+        }
+
+        const ownerKeyAfterCleanup = String(localStorage.getItem(WORKSPACE_STORAGE_KEY) || "");
+        state.ownerRecoveryAvailable =
+          validWorkspaceKey(ownerKeyAfterCleanup) && ownerKeyAfterCleanup !== accessKey;
+
+        // If a stale tester key from the older alpha implementation was saved
+        // as the default workspace, do not silently reopen it from the base URL.
+        if (!queryKey) {
+          localStorage.removeItem(WORKSPACE_STORAGE_KEY);
+          state.workspaceAccessKey = "";
+          window.CL_WORKSPACE_ID = "";
+          state.workspaceError =
+            "A tester workspace cannot be reopened from the base URL. Open your owner recovery link or the tester invite link you were given.";
+          return;
+        }
+      }
+
       state.workspaceReady = true;
     } catch (error) {
       state.workspaceError = error?.message || "Could not verify this private alpha workspace.";
@@ -2575,7 +2602,8 @@
               <button class="btn" id="copyOwnerRecovery">Copy owner recovery link</button>
             </div>
             <p class="meta">Save your owner recovery link somewhere private. It is the key to your existing Christina Lab workspace if browser storage is cleared.</p>
-          ` : '<p class="meta">This tester link cannot access the owner workspace or another tester\'s workspace.</p>'}
+          ` : `<p class="meta">This tester link cannot access the owner workspace or another tester's workspace.</p>
+            ${state.ownerRecoveryAvailable ? '<div class="actions" style="justify-content:flex-start"><button class="btn" id="returnToOwnerWorkspace">Return to owner workspace</button></div>' : ''}`}
         </div>
 
         <div class="card trust-card">
@@ -2914,6 +2942,14 @@
       } catch (error) {
         toast(error?.message || "Could not save experiment result");
       }
+    });
+    document.getElementById("returnToOwnerWorkspace")?.addEventListener("click", () => {
+      const ownerKey = String(localStorage.getItem(WORKSPACE_STORAGE_KEY) || "");
+      if (!validWorkspaceKey(ownerKey)) {
+        toast("Owner recovery key is not saved in this browser");
+        return;
+      }
+      location.href = workspaceLink(ownerKey) + "#/trust";
     });
     document.getElementById("createTesterInvite")?.addEventListener("click", async () => {
       const accessKey = randomWorkspaceKey();
