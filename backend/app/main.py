@@ -219,7 +219,7 @@ EXPERIMENT_STATUSES = {"Draft", "Ready", "Published"}
 EXPERIMENT_DECISIONS = {"UNDECIDED", "GO", "TEST", "HOLD"}
 PRIORITIES = {"High", "Med", "Low"}
 IDEA_DOCUMENT_KINDS = {"script", "plan", "reference", "video_prompt", "photo_reference", "other"}
-IDEA_DOCUMENT_EXTENSIONS = {".docx", ".pdf", ".md", ".txt"}
+IDEA_DOCUMENT_EXTENSIONS = {".docx", ".pdf", ".md", ".txt", ".png", ".jpg", ".jpeg", ".webp"}
 IDEA_DOCUMENT_MAX_BYTES = 5 * 1024 * 1024
 
 
