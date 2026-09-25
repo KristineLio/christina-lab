@@ -1,5 +1,7 @@
 from backend.app.creator_agent import (
     PACKAGE_SCHEMA,
+    SHORT_MOMENTS_SCHEMA,
+    SHORT_PACKAGE_SCHEMA,
     _github_repo_parts,
     compact_youtube_sources,
     relevant_saved_research,
@@ -94,3 +96,31 @@ def test_package_schema_includes_video_builder_manifest():
     assert "visualModes" in scene["properties"]
     assert "assets" in scene["properties"]
     assert "captureRequest" in scene["properties"]
+
+
+
+def test_short_moments_schema_requires_three_grounded_moments():
+    moments = SHORT_MOMENTS_SCHEMA["properties"]["moments"]
+    assert moments["minItems"] == 3
+    assert moments["maxItems"] == 3
+
+    item = moments["items"]
+    assert "frameTimeSeconds" in item["properties"]
+    assert "mechanism" in item["properties"]
+    assert "shortDirection" in item["properties"]
+
+
+def test_short_package_schema_is_ai_studio_ready():
+    variants = SHORT_PACKAGE_SCHEMA["properties"]["variants"]
+    assert variants["minItems"] == 3
+    assert variants["maxItems"] == 3
+
+    item = variants["items"]
+    assert "voiceover" in item["properties"]
+    assert "onScreenText" in item["properties"]
+    assert "shotPlan" in item["properties"]
+    assert "aiStudioPrompt" in item["properties"]
+
+    shots = item["properties"]["shotPlan"]
+    assert shots["minItems"] == 3
+    assert shots["maxItems"] == 3
