@@ -1604,6 +1604,7 @@
     ["Patterns", "/patterns", "grid"],
     ["Analytics", "/analytics", "chart"],
     ["System", null],
+    ["Trust & Access", "/trust", "shield"],
     ["Settings", "/settings", "cog"],
   ];
 
@@ -1624,8 +1625,8 @@
           ).join("")}
         </nav>
         <div class="profile">
-          <img class="avatar" src="https://api.dicebear.com/7.x/avataaars/svg?seed=Christina" alt="Christina avatar" />
-          <div><div>Christina</div><small>Workspace · Live data</small></div>
+          <img class="avatar" src="https://api.dicebear.com/7.x/avataaars/svg?seed=${state.workspaceIsOwner ? "Christina" : "CreatorTester"}" alt="Workspace avatar" />
+          <div><div>${state.workspaceIsOwner ? "Christina" : "Private tester"}</div><small>${state.workspaceIsOwner ? "Owner workspace" : "Isolated alpha workspace"}</small></div>
         </div>
       </aside>
       <div class="main">
@@ -1634,7 +1635,7 @@
           <h1>${title}</h1>
           <div class="grow"></div>
           <input class="search-mini" id="gs" placeholder="Search app…  ⌘K" />
-          <span class="badge">Christina workspace</span>
+          <span class="badge">${state.workspaceIsOwner ? "Owner workspace" : "Private tester workspace"}</span>
         </header>
         <div class="page">${body}</div>
       </div>
