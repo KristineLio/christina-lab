@@ -825,7 +825,7 @@
         : "";
       return `<article class="production-asset-card">
         <div class="production-asset-main">
-          <div class="production-asset-kicker">${esc(selectedPlatform)} · ${esc(idea.type || "Content")}</div>
+          <div class="production-asset-kicker">${esc(selectedPlatform)} · ${esc(idea.type || "Content")}${isLongForm ? " · " + esc(String(ideaProductionDuration(doc, idea.id) || targetDurationMinutes)) + " min target" : ""}</div>
           <h3>${esc(meta.title)}</h3>
           <p>${esc(meta.description)}</p>
           ${doc.cloudUploadedAt ? '<div class="production-sync-state">✓ Google Docs synced</div>' : ""}
@@ -862,25 +862,34 @@
           <div>
             <span class="badge strong">Generate</span>
             <h3>Build a production pack</h3>
-            <p class="meta">Idea format: <b>${esc(idea.type || "Long-form")}</b>. Choose where this piece will be published.</p>
+            <p class="meta">Idea format: <b>${esc(idea.type || "Long-form")}</b>. ${isLongForm ? "Choose the target YouTube runtime; the script and full production timeline will be sized to it." : "Choose where this piece will be published."}</p>
           </div>
         </div>
-        <div class="agent-production-controls">
+        <div class="agent-production-controls ${isLongForm ? "long-form-production-controls" : ""}">
           <label>Platform
             <select id="ideaDocsPlatform">
-              ${["YouTube Shorts", "TikTok", "Pinterest", "Instagram"].map((platform) =>
+              ${allowedPlatforms.map((platform) =>
                 `<option value="${esc(platform)}" ${platform === selectedPlatform ? "selected" : ""}>${esc(platform)}</option>`
               ).join("")}
             </select>
           </label>
+          ${isLongForm ? `<label>Target video length
+            <div class="duration-input-wrap">
+              <input id="ideaDocsDuration" type="number" min="3" max="20" step="1" value="${targetDurationMinutes}" />
+              <span>minutes</span>
+            </div>
+            <small>Aim for 3–20 minutes. The script and timestamped plan will be sized to this target.</small>
+          </label>` : ""}
           <button class="btn primary" type="button" id="generateIdeaDocs">${packDocs.length ? "Regenerate production pack" : "Generate production pack"}</button>
         </div>
-        ${generatedPlatforms.length
+        ${generatedPlatforms.length && !isLongForm
           ? `<div class="production-pack-tabs">
               <span class="meta">Available packs:</span>
               ${generatedPlatforms.map((platform) => `<button class="btn ${platform === selectedPlatform ? "primary" : "ghost"}" type="button" data-pack-platform="${esc(platform)}">${esc(platform)}</button>`).join("")}
             </div>`
-          : ""}
+          : isLongForm && packDocs.length
+            ? `<div class="production-pack-tabs"><span class="meta">Current pack: YouTube · ${targetDurationMinutes} min target · 16:9</span></div>`
+            : ""}
       </section>
 
       <section id="ideaDocumentPreview" class="production-preview" hidden></section>
@@ -888,7 +897,7 @@
       <section class="production-assets-section">
         <div class="section-label-row production-section-label">
           <div>
-            <div class="eyebrow">${esc(selectedPlatform.toUpperCase())}</div>
+            <div class="eyebrow">${esc(selectedPlatform.toUpperCase())}${isLongForm ? " · " + esc(String(targetDurationMinutes)) + " MIN TARGET" : ""}</div>
             <h2>Your production assets</h2>
           </div>
           <p>Read them here, copy what you need, or move editable documents into Google Docs.</p>
@@ -896,7 +905,7 @@
         ${packDocs.length
           ? `<div class="production-assets-grid">${packDocs.map(productionCard).join("")}</div>`
           : `<div class="production-pack-empty">
-              <h3>No ${esc(selectedPlatform)} production pack yet.</h3>
+              <h3>No ${esc(selectedPlatform)}${isLongForm ? " " + esc(String(targetDurationMinutes)) + "-minute" : ""} production pack yet.</h3>
               <p>Generate one above and Christina Lab will create the Script, Production Plan, AI Video Prompt and Photo Reference.</p>
             </div>`}
       </section>
