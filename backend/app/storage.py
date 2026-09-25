@@ -211,15 +211,16 @@ class SnapshotStore:
                 return None
 
             access_key = "clw_" + secrets.token_urlsafe(32)
-            db.execute(
+            cursor = db.execute(
                 """
                 UPDATE workspace_access
                 SET access_key_hash = ?, claimed_at = ?
                 WHERE workspace_id = 'owner'
+                  AND access_key_hash = ''
                 """,
                 (self._workspace_key_hash(access_key), _iso(_utc_now())),
             )
-            return access_key
+            return access_key if cursor.rowcount > 0 else None
 
     def verify_owner_workspace_key(self, access_key: str) -> bool:
         candidate = self._workspace_key_hash(access_key)
