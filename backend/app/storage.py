@@ -826,7 +826,12 @@ class SnapshotStore:
             },
         }
 
-    def _research_row(self, db: DatabaseConnection, video_id: str) -> CompatRow | None:
+    def _research_row(
+        self,
+        db: DatabaseConnection,
+        video_id: str,
+        workspace_id: str = "owner",
+    ) -> CompatRow | None:
         return db.execute(
             """
             SELECT
@@ -861,8 +866,9 @@ class SnapshotStore:
                     SELECT COUNT(*)
                     FROM ideas i
                     WHERE i.source_video_id = r.video_id
+                      AND i.workspace_id = r.workspace_id
                 ) AS idea_count
-            FROM saved_research r
+            FROM workspace_saved_research r
             JOIN videos v ON v.video_id = r.video_id
             LEFT JOIN video_snapshots s ON s.id = (
                 SELECT s2.id
@@ -878,9 +884,9 @@ class SnapshotStore:
                 ORDER BY a2.id DESC
                 LIMIT 1
             )
-            WHERE r.video_id = ?
+            WHERE r.workspace_id = ? AND r.video_id = ?
             """,
-            (video_id,),
+            (workspace_id, video_id),
         ).fetchone()
 
     @staticmethod
@@ -925,6 +931,7 @@ class SnapshotStore:
         adapt: str | None = None,
         angle: str | None = None,
         collection: str | None = None,
+        workspace_id: str = "owner",
     ) -> dict:
         now = _iso(_utc_now())
         with self._connect() as db:
@@ -936,20 +943,25 @@ class SnapshotStore:
                 raise ValueError("Video is not in Christina Lab's research database yet.")
 
             current = db.execute(
-                "SELECT * FROM saved_research WHERE video_id = ?",
-                (video_id,),
+                """
+                SELECT *
+                FROM workspace_saved_research
+                WHERE workspace_id = ? AND video_id = ?
+                """,
+                (workspace_id, video_id),
             ).fetchone()
 
             if current is None:
                 db.execute(
                     """
-                    INSERT INTO saved_research (
-                        video_id, saved_at, updated_at, why_saved, adaptation,
-                        unique_angle, collection_name
+                    INSERT INTO workspace_saved_research (
+                        workspace_id, video_id, saved_at, updated_at, why_saved,
+                        adaptation, unique_angle, collection_name
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
+                        workspace_id,
                         video_id,
                         now,
                         now,
@@ -962,13 +974,13 @@ class SnapshotStore:
             else:
                 db.execute(
                     """
-                    UPDATE saved_research
+                    UPDATE workspace_saved_research
                     SET updated_at = ?,
                         why_saved = ?,
                         adaptation = ?,
                         unique_angle = ?,
                         collection_name = ?
-                    WHERE video_id = ?
+                    WHERE workspace_id = ? AND video_id = ?
                     """,
                     (
                         now,
@@ -976,32 +988,45 @@ class SnapshotStore:
                         current["adaptation"] if adapt is None else adapt,
                         current["unique_angle"] if angle is None else angle,
                         current["collection_name"] if collection is None else collection,
+                        workspace_id,
                         video_id,
                     ),
                 )
 
-            row = self._research_row(db, video_id)
+            row = self._research_row(db, video_id, workspace_id)
             if row is None:
                 raise ValueError("Could not load saved research after saving.")
             return self._serialize_research(row)
 
-    def remove_saved_research(self, video_id: str) -> bool:
+    def remove_saved_research(self, video_id: str, *, workspace_id: str = "owner") -> bool:
         with self._connect() as db:
             cursor = db.execute(
-                "DELETE FROM saved_research WHERE video_id = ?",
-                (video_id,),
+                """
+                DELETE FROM workspace_saved_research
+                WHERE workspace_id = ? AND video_id = ?
+                """,
+                (workspace_id, video_id),
             )
             return cursor.rowcount > 0
 
-    def list_saved_research(self) -> list[dict]:
+    def list_saved_research(self, *, workspace_id: str = "owner") -> list[dict]:
         with self._connect() as db:
             ids = [
                 row["video_id"]
                 for row in db.execute(
-                    "SELECT video_id FROM saved_research ORDER BY saved_at DESC"
+                    """
+                    SELECT video_id
+                    FROM workspace_saved_research
+                    WHERE workspace_id = ?
+                    ORDER BY saved_at DESC
+                    """,
+                    (workspace_id,),
                 ).fetchall()
             ]
-            rows = [self._research_row(db, video_id) for video_id in ids]
+            rows = [
+                self._research_row(db, video_id, workspace_id)
+                for video_id in ids
+            ]
         return [self._serialize_research(row) for row in rows if row is not None]
 
     @staticmethod
