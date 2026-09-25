@@ -2,8 +2,7 @@
  * CHRISTINA LAB — FRONTEND WORKFLOW / UI CONTROLLER
  *
  * This file implements the product workflow and interactive UI:
- * Dashboard, Discover, Video Analysis, Saved Research, Ideas,
- * Experiments, My Videos, Patterns, Analytics, Watchlists, and Settings.
+ * Research → Create → Test → Learn, with contextual AI assistance inside the workflow.
  *
  * Production views use the FastAPI backend and persisted Christina Lab data.
  * Demo/mock datasets are intentionally not loaded in the live workspace.
@@ -338,6 +337,7 @@
   function workflowRoute(path = state.route) {
     const clean = String(path || "/").split("?")[0] || "/";
     return (
+      clean === "/" ||
       clean === "/discover" ||
       clean === "/saved" ||
       clean === "/ideas" ||
@@ -447,13 +447,14 @@
       <div id="palhits"></div>
     </div>`;
     const hits = [
-      ["Discover videos", "/discover"],
-      ["Create idea", "/ideas"],
-      ["Open Creator Agent", "/agent"],
-      ["Open saved research", "/saved"],
+      ["Discover market signals", "/discover"],
+      ["Turn saved research into an idea", "/saved"],
+      ["Open ideas and production packs", "/ideas"],
       ["Open experiments", "/lab"],
+      ["Review published videos", "/videos"],
+      ["Learn from patterns", "/patterns"],
+      ["Compare market vs creator evidence", "/analytics"],
       ["Dashboard", "/"],
-      ["Analytics", "/analytics"],
     ];
     const draw = (q) => {
       const f = hits.filter((h) => h[0].toLowerCase().includes(q.toLowerCase()));
@@ -536,7 +537,7 @@
       navigate("/ideas");
       return result;
     } catch (error) {
-      toast(error?.message || "Creator Agent could not turn this research into an idea.");
+      toast(error?.message || "AI assistance could not turn this research into an idea.");
     } finally {
       if (button) {
         button.disabled = false;
@@ -687,7 +688,7 @@
       <section class="agent-production-docs">
         <div class="agent-production-docs-head">
           <div>
-            <span class="badge strong">Agent production pack</span>
+            <span class="badge strong">Production pack</span>
             <h3>Generate the assets needed to make this idea</h3>
             <p class="meta">Idea format: <b>${esc(idea.type || "Long-form")}</b>. Choose the publishing platform for the production prompt.</p>
           </div>
@@ -700,7 +701,7 @@
               ).join("")}
             </select>
           </label>
-          <button class="btn primary" type="button" id="generateIdeaDocs">Generate docs with agent</button>
+          <button class="btn primary" type="button" id="generateIdeaDocs">Generate production pack</button>
         </div>
         <div class="agent-production-output">
           <span>Creates:</span>
@@ -779,7 +780,7 @@
           toast((result.documents || []).length + " production docs generated");
           renderIdeaDocumentsModal(idea, items, platform);
         } catch (error) {
-          toast(error?.message || "Creator Agent could not generate production docs");
+          toast(error?.message || "AI assistance could not generate the production pack");
           generateDocsButton.disabled = false;
           generateDocsButton.textContent = original;
         }
@@ -1135,14 +1136,12 @@
     ["Research", null],
     ["Discover", "/discover", "search"],
     ["Saved Research", "/saved", "bookmark"],
-    ["Watchlists", "/watchlists", "eye"],
     ["Create", null],
-    ["Creator Agent", "/agent", "spark"],
     ["Ideas", "/ideas", "light"],
-    ["Lab", null],
+    ["Test", null],
     ["Experiments", "/lab", "flask"],
     ["My Videos", "/videos", "play"],
-    ["Insights", null],
+    ["Learn", null],
     ["Patterns", "/patterns", "grid"],
     ["Analytics", "/analytics", "chart"],
     ["System", null],
@@ -1292,12 +1291,46 @@
     const growth = Array.isArray(d.fastestActualGrowth) ? d.fastestActualGrowth : [];
     const mix = Array.isArray(d.contentMix) ? d.contentMix : [];
     const maturity = d.dataMaturity || {};
+    const workflow = state.workflowSummary || {};
+    const decisions = workflow.decisions || {};
 
     return `
-      <div class="loop">Discover → Analyze → Snapshot → Compare → <b>Learn</b></div>
-      <div style="font-size:22px;font-weight:600">Christina Lab research dashboard</div>
-      <p class="sub">Real metrics from Christina Lab's persisted research database — no demo counters.</p>
+      <div class="product-hero">
+        <div>
+          <div class="eyebrow">EVIDENCE-DRIVEN CREATOR WORKFLOW</div>
+          <div class="product-title">Research what works. Create something original. Test it. Learn what works for you.</div>
+          <p class="sub">Christina Lab connects public market signals with your own creator experiments so research and AI generation lead to measurable learning—not just more content.</p>
+        </div>
+      </div>
 
+      <div class="creator-loop">
+        <button class="creator-loop-step" data-go="/discover"><span>1</span><b>Research</b><small>Find real market signals</small></button>
+        <button class="creator-loop-step" data-go="/ideas"><span>2</span><b>Create</b><small>Turn evidence into an original idea</small></button>
+        <button class="creator-loop-step" data-go="/lab"><span>3</span><b>Test</b><small>Publish a measurable experiment</small></button>
+        <button class="creator-loop-step" data-go="/analytics"><span>4</span><b>Learn</b><small>Compare market vs creator evidence</small></button>
+      </div>
+
+      <div class="section-label-row">
+        <div>
+          <div class="eyebrow">YOUR CREATOR LOOP</div>
+          <h2>Your evidence</h2>
+        </div>
+        <p>These numbers come from what you explicitly saved, created and tested.</p>
+      </div>
+      <div class="metrics">
+        <div class="metric"><label>Saved Research</label><div class="val num">${fmt(workflow.savedResearch || 0)}</div><div class="sec">references you chose to keep</div></div>
+        <div class="metric"><label>Ideas</label><div class="val num">${fmt(workflow.ideas || 0)}</div><div class="sec">original concepts in your pipeline</div></div>
+        <div class="metric"><label>Experiments</label><div class="val num">${fmt(workflow.experiments || 0)}</div><div class="sec">${fmt(workflow.publishedExperiments || 0)} published</div></div>
+        <div class="metric"><label>GO / TEST / HOLD</label><div class="val num">${fmt(decisions.GO || 0)} · ${fmt(decisions.TEST || 0)} · ${fmt(decisions.HOLD || 0)}</div><div class="sec">decisions from real results</div></div>
+      </div>
+
+      <div class="section-label-row">
+        <div>
+          <div class="eyebrow">MARKET EVIDENCE</div>
+          <h2>What Christina Lab is observing</h2>
+        </div>
+        <p>Public YouTube observations help you spot opportunities. They are not your personal performance.</p>
+      </div>
       <div class="metrics">
         <div class="metric"><label>Public Videos Observed</label><div class="val num">${fmt(m.videosTracked || 0)}</div><div class="sec">candidates + channel-history videos</div></div>
         <div class="metric"><label>Metric Snapshots</label><div class="val num">${fmt(m.snapshotsStored || 0)}</div><div class="sec">timestamped public observations</div></div>
@@ -1696,7 +1729,7 @@
     if (gate) return gate;
     const items = state.savedResearch.slice();
     return `
-      <p class="sub">Persisted research you deliberately chose to keep. Notes survive refreshes and become the source material for ideas.</p>
+      <p class="sub">Keep only references worth learning from. Add Why / Adapt / Angle, choose Short or Long-form, then generate an original idea from the evidence.</p>
       <div class="filters">
         <button class="btn ${state.savedView === "grid" ? "primary" : ""}" data-view="grid">Grid</button>
         <button class="btn ${state.savedView === "table" ? "primary" : ""}" data-view="table">Table</button>
@@ -1726,7 +1759,7 @@
                     <option value="Long-form">Long-form</option>
                   </select>
                 </label>
-                <button class="btn primary" data-act="agent-idea" data-id="${esc(v.videoId || v.id)}">Agent → Idea</button>
+                <button class="btn primary" data-act="agent-idea" data-id="${esc(v.videoId || v.id)}">Generate idea</button>
               </div>
               <div class="actions" style="margin-top:8px">
                 <button class="btn" data-act="analyze" data-id="${esc(v.videoId || v.id)}">Open research</button>
@@ -1747,7 +1780,7 @@
                     <option value="Short">Short</option>
                     <option value="Long-form">Long-form</option>
                   </select>
-                  <button class="btn primary" data-act="agent-idea" data-id="${esc(v.videoId || v.id)}">Agent → Idea</button>
+                  <button class="btn primary" data-act="agent-idea" data-id="${esc(v.videoId || v.id)}">Generate idea</button>
                   <button class="btn" data-act="idea" data-id="${esc(v.videoId || v.id)}">Manual</button>
                   <button class="btn ghost" data-act="unsave" data-id="${esc(v.videoId || v.id)}">Remove</button>
                 </div>
@@ -1774,7 +1807,7 @@
     if (gate) return gate;
     const cols = ["Draft", "Ready", "Published"];
     return `
-      <p class="sub">Persisted idea pipeline: Draft → Ready → Published. Drag cards between stages; every move is saved to SQLite.</p>
+      <p class="sub">Original concepts built from research or your own direction. Use Documents to generate the script, production plan, AI Studio prompt and photo-reference brief, then turn the idea into an experiment.</p>
       <div class="actions" style="margin-bottom:12px">
         <button class="btn primary" id="newIdea">Create idea</button>
         <span class="meta">${state.ideas.length} persisted idea${state.ideas.length === 1 ? "" : "s"}</span>
@@ -1808,7 +1841,7 @@
     const learning = state.learningSignals || [];
     return `
       <div style="font-size:20px;font-weight:600">Christina Lab experiments</div>
-      <p class="sub">Ideas become measurable tests. Record the actual result, then choose GO / TEST / HOLD based on your evidence.</p>
+      <p class="sub">This is where an idea becomes evidence. Publish the test, record the real result, then choose GO / TEST / HOLD and let Christina Lab build your creator-specific playbook.</p>
       <div class="actions" style="margin-bottom:12px"><button class="btn primary" id="newExperiment">Create experiment</button></div>
       <div class="metrics">
         <div class="metric"><label>Experiments</label><div class="val num">${summary.experiments ?? e.length}</div></div>
@@ -2050,7 +2083,7 @@
 
   function watchlists() {
     return `
-      <p class="sub">Watchlists will contain only channels and topics you explicitly save from real research.</p>
+      <p class="sub">Watchlists are an experimental research utility and are not part of the primary Christina Lab workflow yet.</p>
       <div class="empty">
         <h3>No persisted watchlist items yet.</h3>
         <p>The old VibeFlow example channels and topic counters have been removed. When watchlist persistence is implemented, real saved items will appear here.</p>
@@ -2084,13 +2117,13 @@
           : `<p class="meta">One-time setup: add <code>GOOGLE_OAUTH_CLIENT_ID</code> to the deployed service and authorize the live Christina Lab origin as a JavaScript origin.</p>`}
       </div>
       <div class="card" style="padding:14px;margin-bottom:12px">
-        <h2 style="font-size:14px">Creator Agent</h2>
+        <h2 style="font-size:14px">AI assistance</h2>
         <p class="meta">Status: ${state.creatorAgentConfigured
           ? "Configured · " + esc(state.creatorAgentProvider || "AI") + " · " + esc(state.creatorAgentModel || "model ready")
           : "Not configured · default provider Gemini"}</p>
-        <p>Researches reference videos and optional public GitHub project context, proposes three angles, then creates the research brief, script, and production blueprint after you choose.</p>
+        <p>AI appears inside the creator workflow where it is useful: turning saved research into an idea, extracting short-worthy moments, and generating production packs. The evidence and final creative decisions stay with you.</p>
         ${state.creatorAgentConfigured
-          ? '<button class="btn primary" data-go="/agent">Open Creator Agent</button>'
+          ? '<div class="actions" style="justify-content:flex-start"><button class="btn" data-go="/saved">Use in Saved Research</button><button class="btn" data-go="/ideas">Use in Ideas</button></div>'
           : '<p class="meta">For the free alpha: set <code>AI_PROVIDER=gemini</code> and add <code>GEMINI_API_KEY</code>. Optional fallbacks: Groq, OpenRouter, OpenAI, or a local OpenAI-compatible model.</p>'}
       </div>
       <div class="card" style="padding:14px">
@@ -2122,7 +2155,7 @@
       title = "Saved Research";
       body = saved();
     } else if (path === "/agent") {
-      title = "Creator Agent";
+      title = "Advanced AI Workspace";
       body = creatorAgent();
     } else if (path === "/ideas") {
       title = "Ideas";
