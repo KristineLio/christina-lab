@@ -222,11 +222,74 @@ def _migration_4_prune_legacy_unsaved_research(db: DatabaseConnection) -> None:
     )
 
 
+def _migration_5_private_alpha_workspaces(db: DatabaseConnection) -> None:
+    """Scope creator-owned workflow rows without duplicating the public research corpus.
+
+    Existing creator data is assigned to the special owner workspace. Tester
+    invite links use opaque workspace IDs, so saved research and workflow rows
+    are isolated while public YouTube observations remain shared evidence.
+    """
+
+    db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS workspace_saved_research (
+            workspace_id TEXT NOT NULL,
+            video_id TEXT NOT NULL,
+            saved_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            why_saved TEXT NOT NULL DEFAULT '',
+            adaptation TEXT NOT NULL DEFAULT '',
+            unique_angle TEXT NOT NULL DEFAULT '',
+            collection_name TEXT NOT NULL DEFAULT 'General',
+            PRIMARY KEY(workspace_id, video_id),
+            FOREIGN KEY(video_id) REFERENCES videos(video_id) ON DELETE CASCADE
+        )
+        """
+    )
+
+    existing = db.execute(
+        "SELECT COUNT(*) AS count FROM workspace_saved_research"
+    ).fetchone()
+    if int(existing["count"] or 0) == 0:
+        db.execute(
+            """
+            INSERT INTO workspace_saved_research (
+                workspace_id, video_id, saved_at, updated_at, why_saved,
+                adaptation, unique_angle, collection_name
+            )
+            SELECT
+                'owner', video_id, saved_at, updated_at, why_saved,
+                adaptation, unique_angle, collection_name
+            FROM saved_research
+            """
+        )
+
+    idea_columns = db.columns("ideas")
+    if "workspace_id" not in idea_columns:
+        db.execute(
+            "ALTER TABLE ideas ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'owner'"
+        )
+
+    db.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_workspace_saved_research_saved
+        ON workspace_saved_research(workspace_id, saved_at)
+        """
+    )
+    db.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_ideas_workspace_updated
+        ON ideas(workspace_id, updated_at)
+        """
+    )
+
+
 MIGRATIONS: tuple[tuple[int, str, Callable[[DatabaseConnection], None]], ...] = (
     (1, "base_schema", _migration_1_base_schema),
     (2, "video_metadata", _migration_2_video_metadata),
     (3, "document_cloud_metadata", _migration_3_document_cloud_metadata),
     (4, "prune_legacy_unsaved_research", _migration_4_prune_legacy_unsaved_research),
+    (5, "private_alpha_workspaces", _migration_5_private_alpha_workspaces),
 )
 
 
