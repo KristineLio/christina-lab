@@ -1415,6 +1415,14 @@ class SnapshotStore:
                 )
             return self._serialize_experiment(row)
 
+    def delete_experiment(self, experiment_id: int) -> bool:
+        with self._connect() as db:
+            cursor = db.execute(
+                "DELETE FROM experiments WHERE id = ?",
+                (experiment_id,),
+            )
+            return cursor.rowcount > 0
+
     def workflow_summary(self) -> dict:
         saved = self.list_saved_research()
         ideas = self.list_ideas()
