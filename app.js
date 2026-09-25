@@ -2602,8 +2602,7 @@
               <button class="btn" id="copyOwnerRecovery">Copy owner recovery link</button>
             </div>
             <p class="meta">Save your owner recovery link somewhere private. It is the key to your existing Christina Lab workspace if browser storage is cleared.</p>
-          ` : `<p class="meta">This tester link cannot access the owner workspace or another tester's workspace.</p>
-            ${state.ownerRecoveryAvailable ? '<div class="actions" style="justify-content:flex-start"><button class="btn" id="returnToOwnerWorkspace">Return to owner workspace</button></div>' : ''}`}
+          ` : '<p class="meta">This tester link cannot access the owner workspace or another tester\'s workspace.</p>'}
         </div>
 
         <div class="card trust-card">
@@ -2942,14 +2941,6 @@
       } catch (error) {
         toast(error?.message || "Could not save experiment result");
       }
-    });
-    document.getElementById("returnToOwnerWorkspace")?.addEventListener("click", () => {
-      const ownerKey = String(localStorage.getItem(WORKSPACE_STORAGE_KEY) || "");
-      if (!validWorkspaceKey(ownerKey)) {
-        toast("Owner recovery key is not saved in this browser");
-        return;
-      }
-      location.href = workspaceLink(ownerKey) + "#/trust";
     });
     document.getElementById("createTesterInvite")?.addEventListener("click", async () => {
       const accessKey = randomWorkspaceKey();
