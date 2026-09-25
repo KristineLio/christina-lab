@@ -637,6 +637,14 @@
     return (bytes / (1024 * 1024)).toFixed(1) + " MB";
   }
 
+  async function copyIdeaDocumentText(documentId, label) {
+    const response = await fetch(API_BASE + "/api/idea-documents/" + encodeURIComponent(documentId));
+    if (!response.ok) throw new Error("Could not load document text.");
+    const text = await response.text();
+    await navigator.clipboard.writeText(text);
+    toast((label || "Document") + " copied");
+  }
+
   async function openIdeaDocumentsModal(idea) {
     const m = $("modal");
     m.hidden = false;
@@ -662,31 +670,63 @@
     }
   }
 
-  function renderIdeaDocumentsModal(idea, documents) {
+  function renderIdeaDocumentsModal(idea, documents, selectedPlatform = "YouTube Shorts") {
     const m = $("modal");
     const kinds = {
       script: "Script",
-      plan: "Production Blueprint / PRD",
+      plan: "Production Plan / PRD",
       reference: "Reference",
+      video_prompt: "Video Prompt",
+      photo_reference: "Photo Reference",
       other: "Other",
     };
     m.innerHTML = `<div class="modal idea-modal">
       <h2 style="margin:0 0 6px;font-size:16px">Idea documents</h2>
       <p class="meta" style="margin-top:0">Keep the creative source material for <b>${esc(idea.title)}</b> with the experiment.</p>
 
+      <section class="agent-production-docs">
+        <div class="agent-production-docs-head">
+          <div>
+            <span class="badge strong">Agent production pack</span>
+            <h3>Generate the assets needed to make this idea</h3>
+            <p class="meta">Idea format: <b>${esc(idea.type || "Long-form")}</b>. Choose the publishing platform for the production prompt.</p>
+          </div>
+        </div>
+        <div class="agent-production-controls">
+          <label>Platform
+            <select id="ideaDocsPlatform">
+              ${["YouTube Shorts", "TikTok", "Pinterest", "Instagram"].map((platform) =>
+                `<option value="${esc(platform)}" ${platform === selectedPlatform ? "selected" : ""}>${esc(platform)}</option>`
+              ).join("")}
+            </select>
+          </label>
+          <button class="btn primary" type="button" id="generateIdeaDocs">Generate docs with agent</button>
+        </div>
+        <div class="agent-production-output">
+          <span>Creates:</span>
+          <b>Script</b>
+          <b>Production Plan</b>
+          <b>Video Prompt</b>
+          <b>Photo Reference</b>
+        </div>
+        <p class="meta" style="margin:8px 0 0">The Video Prompt is paste-ready for AI Studio / Veo. Photo Reference is a truthful image brief with both a capture instruction and an image-generation prompt; it does not pretend a photo already exists.</p>
+      </section>
+
       <form class="form" id="documentForm">
         <label>Document type
           <select name="kind">
             <option value="script">Script</option>
-            <option value="plan">Production Blueprint / PRD</option>
+            <option value="plan">Production Plan / PRD</option>
+            <option value="video_prompt">Video Prompt</option>
+            <option value="photo_reference">Photo Reference</option>
             <option value="reference">Reference</option>
             <option value="other">Other</option>
           </select>
         </label>
         <label>File
-          <input name="file" type="file" required accept=".docx,.pdf,.md,.txt" />
+          <input name="file" type="file" required accept=".docx,.pdf,.md,.txt,.png,.jpg,.jpeg,.webp" />
         </label>
-        <div class="meta">DOCX, PDF, Markdown, or text · maximum 5 MB per file.</div>
+        <div class="meta">DOCX, PDF, Markdown, text, PNG, JPG, or WebP · maximum 5 MB per file.</div>
         <div class="actions">
           <button class="btn ghost" type="button" id="cancelM">Close</button>
           <button class="btn primary" type="submit">Upload document</button>
@@ -702,6 +742,9 @@
               <span class="meta">${esc(String(doc.uploadedAt || "").replace("T", " ").replace("Z", " UTC"))}${doc.cloudUploadedAt ? "<br>Google Docs synced" : ""}</span>
               <span class="actions">
                 <a class="btn" href="${API_BASE}/api/idea-documents/${doc.id}">Download</a>
+                ${String(doc.contentType || "").startsWith("text/") || /\.(md|txt)$/i.test(String(doc.filename || ""))
+                  ? `<button class="btn" type="button" data-copy-doc="${doc.id}" data-copy-label="${esc(kinds[doc.kind] || "Document")}">Copy text</button>`
+                  : ""}
                 ${canConvertToGoogleDocs(doc)
                   ? `<button class="btn" type="button" data-google-doc="${doc.id}">${doc.cloudUrl ? "Upload new Google Doc" : "Upload to Google Docs"}</button>`
                   : ""}
@@ -717,6 +760,44 @@
     m.onclick = (e) => {
       if (e.target === m) m.hidden = true;
     };
+
+    const generateDocsButton = $("generateIdeaDocs");
+    if (generateDocsButton) {
+      generateDocsButton.onclick = async () => {
+        const platform = $("ideaDocsPlatform")?.value || selectedPlatform;
+        const original = generateDocsButton.textContent;
+        generateDocsButton.disabled = true;
+        generateDocsButton.textContent = "Generating…";
+        try {
+          const result = await apiJson("/api/ideas/" + encodeURIComponent(idea.id) + "/agent-documents", {
+            method: "POST",
+            body: { platform },
+          });
+          const payload = await fetchJson("/api/ideas/" + encodeURIComponent(idea.id) + "/documents");
+          const items = Array.isArray(payload.items) ? payload.items : [];
+          idea.documentCount = items.length;
+          toast((result.documents || []).length + " production docs generated");
+          renderIdeaDocumentsModal(idea, items, platform);
+        } catch (error) {
+          toast(error?.message || "Creator Agent could not generate production docs");
+          generateDocsButton.disabled = false;
+          generateDocsButton.textContent = original;
+        }
+      };
+    }
+
+    document.querySelectorAll("[data-copy-doc]").forEach((button) => {
+      button.onclick = async () => {
+        button.disabled = true;
+        try {
+          await copyIdeaDocumentText(button.dataset.copyDoc, button.dataset.copyLabel || "Document");
+        } catch (error) {
+          toast(error?.message || "Could not copy document");
+        } finally {
+          button.disabled = false;
+        }
+      };
+    });
 
     $("documentForm").onsubmit = async (e) => {
       e.preventDefault();
@@ -749,7 +830,7 @@
         const items = Array.isArray(payload.items) ? payload.items : [];
         idea.documentCount = items.length;
         toast("Document uploaded");
-        renderIdeaDocumentsModal(idea, items);
+        renderIdeaDocumentsModal(idea, items, selectedPlatform);
       } catch (error) {
         toast(error?.message || "Could not upload document");
         if (submit) submit.disabled = false;
@@ -768,7 +849,7 @@
           const items = Array.isArray(payload.items) ? payload.items : [];
           idea.documentCount = items.length;
           toast("Uploaded to Google Docs");
-          renderIdeaDocumentsModal(idea, items);
+          renderIdeaDocumentsModal(idea, items, selectedPlatform);
         } catch (error) {
           toast(error?.message || "Could not upload to Google Docs");
           button.disabled = false;
@@ -787,7 +868,7 @@
           const items = Array.isArray(payload.items) ? payload.items : [];
           idea.documentCount = items.length;
           toast("Document removed");
-          renderIdeaDocumentsModal(idea, items);
+          renderIdeaDocumentsModal(idea, items, selectedPlatform);
         } catch (error) {
           toast(error?.message || "Could not remove document");
         }
