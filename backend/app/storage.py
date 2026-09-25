@@ -254,6 +254,7 @@ class SnapshotStore:
         *,
         observed_at: datetime | None = None,
         min_interval_minutes: int = SNAPSHOT_MIN_INTERVAL_MINUTES,
+        workspace_id: str = "owner",
     ) -> int:
         observed_at = observed_at or _utc_now()
         observed_iso = _iso(observed_at)
@@ -312,11 +313,11 @@ class SnapshotStore:
                     """
                     SELECT observed_at
                     FROM video_snapshots
-                    WHERE video_id = ?
+                    WHERE workspace_id = ? AND video_id = ?
                     ORDER BY observed_at DESC
                     LIMIT 1
                     """,
-                    (video_id,),
+                    (workspace_id, video_id),
                 ).fetchone()
 
                 if latest:
@@ -328,11 +329,12 @@ class SnapshotStore:
                 db.execute(
                     """
                     INSERT INTO video_snapshots (
-                        video_id, observed_at, age_hours, views, likes, comments, subscribers
+                        workspace_id, video_id, observed_at, age_hours, views, likes, comments, subscribers
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
+                        workspace_id,
                         video_id,
                         observed_iso,
                         round(age_hours, 4),
@@ -352,6 +354,7 @@ class SnapshotStore:
         *,
         topic: str,
         observed_at: datetime | None = None,
+        workspace_id: str = "owner",
     ) -> int:
         """Persist derived candidate-level research signals from a Discover search."""
         observed_at = observed_at or _utc_now()
@@ -373,12 +376,13 @@ class SnapshotStore:
                 db.execute(
                     """
                     INSERT INTO video_analyses (
-                        video_id, observed_at, topic, opportunity, outlier, baseline,
+                        workspace_id, video_id, observed_at, topic, opportunity, outlier, baseline,
                         baseline_method, baseline_sample_size, views_day, engagement, views_sub
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
+                        workspace_id,
                         video_id,
                         observed_iso,
                         str(topic or "").strip(),
@@ -419,6 +423,7 @@ class SnapshotStore:
         target_age_hours: float,
         min_samples: int = 3,
         max_samples: int = 12,
+        workspace_id: str = "owner",
     ) -> dict:
         tolerance = self.age_tolerance_hours(target_age_hours)
         minimum_age = max(float(target_age_hours) - tolerance, 0.0)
@@ -437,7 +442,8 @@ class SnapshotStore:
                     v.published_at
                 FROM video_snapshots s
                 JOIN videos v ON v.video_id = s.video_id
-                WHERE v.channel_id = ?
+                WHERE s.workspace_id = ?
+                  AND v.channel_id = ?
                   AND v.content_type = ?
                   AND v.video_id <> ?
                   AND s.age_hours BETWEEN ? AND ?
@@ -445,6 +451,7 @@ class SnapshotStore:
                 ORDER BY v.published_at DESC, s.video_id, ABS(s.age_hours - ?) ASC
                 """,
                 (
+                    workspace_id,
                     channel_id,
                     content_type,
                     candidate_id,
@@ -495,17 +502,23 @@ class SnapshotStore:
             ],
         }
 
-    def video_snapshots(self, video_id: str, *, limit: int = 50) -> list[dict]:
+    def video_snapshots(
+        self,
+        video_id: str,
+        *,
+        limit: int = 50,
+        workspace_id: str = "owner",
+    ) -> list[dict]:
         with self._connect() as db:
             rows = db.execute(
                 """
                 SELECT observed_at, age_hours, views, likes, comments, subscribers
                 FROM video_snapshots
-                WHERE video_id = ?
+                WHERE workspace_id = ? AND video_id = ?
                 ORDER BY observed_at ASC
                 LIMIT ?
                 """,
-                (video_id, max(1, min(int(limit), 500))),
+                (workspace_id, video_id, max(1, min(int(limit), 500))),
             ).fetchall()
 
         return [
