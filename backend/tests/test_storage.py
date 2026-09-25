@@ -972,3 +972,27 @@ def test_experiment_update_can_edit_core_fields(tmp_path):
     assert updated["v24"] == 123
     assert updated["retention"] == 42.5
     assert updated["lesson"] == "Learned something useful"
+
+
+
+def test_delete_experiment_preserves_source_idea(tmp_path):
+    db = tmp_path / "christina_lab.sqlite3"
+    store = SnapshotStore(f"sqlite:///{db}")
+
+    idea = store.create_idea(
+        title="Keep this idea",
+        topic="Testing",
+        content_type="Short",
+        hypothesis="Try one thing",
+    )
+    experiment = store.create_experiment(
+        idea_id=idea["id"],
+        name="Delete me",
+        status="Ready",
+    )
+
+    assert store.get_experiment(experiment["id"]) is not None
+    assert store.delete_experiment(experiment["id"]) is True
+    assert store.get_experiment(experiment["id"]) is None
+    assert store.get_idea(idea["id"]) is not None
+    assert store.delete_experiment(experiment["id"]) is False
