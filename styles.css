@@ -382,6 +382,13 @@ body,
   gap: 12px;
 }
 .agent-short-head p { margin: 4px 0 0; }
+.agent-short-transcript-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 2px;
+}
 .agent-short-form textarea {
   min-height: 170px;
   font-family: "IBM Plex Mono", ui-monospace, monospace;
