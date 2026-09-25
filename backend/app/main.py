@@ -294,7 +294,7 @@ async def health() -> dict:
         "creatorAgentProvider": creator_agent_provider(),
         "creatorAgentModel": creator_agent_model() if creator_agent_configured() else None,
         "creatorAgentProviders": provider_status(),
-        "snapshotStore": snapshot_store.stats(),
+        "snapshotStore": {"configured": True},
     }
 
 
@@ -340,6 +340,7 @@ async def discover(
     max_results: int = Query(25, ge=1, le=50),
     published_after_days: int = Query(7, ge=0, le=3650),
     mode: str = Query("trend", pattern="^(trend|reference)$"),
+    x_christina_workspace: str | None = Header(default=None, alias="X-Christina-Workspace"),
 ) -> dict:
     api_key = os.getenv("YOUTUBE_API_KEY")
     if not api_key:
@@ -349,7 +350,12 @@ async def discover(
         )
 
     try:
-        return await YouTubeClient(api_key, snapshot_store=snapshot_store).discover(
+        workspace_id = _workspace_id(x_christina_workspace)
+        return await YouTubeClient(
+            api_key,
+            snapshot_store=snapshot_store,
+            workspace_id=workspace_id,
+        ).discover(
             query=q.strip(),
             max_results=max_results,
             published_after_days=published_after_days,
@@ -361,13 +367,24 @@ async def discover(
 
 
 @app.get("/api/snapshots/stats")
-async def snapshot_stats() -> dict:
-    return snapshot_store.stats()
+async def snapshot_stats(
+    x_christina_workspace: str | None = Header(default=None, alias="X-Christina-Workspace"),
+) -> dict:
+    return snapshot_store.stats(
+        workspace_id=_workspace_id(x_christina_workspace)
+    )
 
 
 @app.get("/api/videos/{video_id}/snapshots")
-async def video_snapshots(video_id: str) -> dict:
-    snapshots = snapshot_store.video_snapshots(video_id)
+async def video_snapshots(
+    video_id: str,
+    x_christina_workspace: str | None = Header(default=None, alias="X-Christina-Workspace"),
+) -> dict:
+    workspace_id = _workspace_id(x_christina_workspace)
+    snapshots = snapshot_store.video_snapshots(
+        video_id,
+        workspace_id=workspace_id,
+    )
     return {
         "videoId": video_id,
         "count": len(snapshots),
@@ -377,13 +394,21 @@ async def video_snapshots(video_id: str) -> dict:
 
 
 @app.get("/api/dashboard")
-async def dashboard() -> dict:
-    return snapshot_store.dashboard_summary()
+async def dashboard(
+    x_christina_workspace: str | None = Header(default=None, alias="X-Christina-Workspace"),
+) -> dict:
+    return snapshot_store.dashboard_summary(
+        workspace_id=_workspace_id(x_christina_workspace)
+    )
 
 
 @app.get("/api/patterns")
-async def patterns() -> dict:
-    return snapshot_store.patterns_summary()
+async def patterns(
+    x_christina_workspace: str | None = Header(default=None, alias="X-Christina-Workspace"),
+) -> dict:
+    return snapshot_store.patterns_summary(
+        workspace_id=_workspace_id(x_christina_workspace)
+    )
 
 
 
@@ -801,9 +826,14 @@ async def creator_agent_research(
             detail="YOUTUBE_API_KEY is not configured on the backend.",
         )
 
+    workspace_id = _workspace_id(x_christina_workspace)
     search_query = (payload.topic or payload.project).strip()
     try:
-        youtube = await YouTubeClient(api_key, snapshot_store=snapshot_store).discover(
+        youtube = await YouTubeClient(
+            api_key,
+            snapshot_store=snapshot_store,
+            workspace_id=workspace_id,
+        ).discover(
             query=search_query,
             max_results=12,
             published_after_days=3650,
@@ -814,9 +844,7 @@ async def creator_agent_research(
 
     repo_context = await load_github_repo_context(payload.repoUrl)
     saved = relevant_saved_research(
-        snapshot_store.list_saved_research(
-            workspace_id=_workspace_id(x_christina_workspace)
-        ),
+        snapshot_store.list_saved_research(workspace_id=workspace_id),
         project=payload.project,
         topic=payload.topic,
     )
