@@ -17,6 +17,39 @@
       : "");
 
   const LIVE_SESSION_KEY = "christinaLab.liveResearch.v2";
+  const WORKSPACE_STORAGE_KEY = "christinaLab.workspaceAccess.v1";
+  const AI_DISCLOSURE_PREFIX = "christinaLab.aiDisclosure.v1.";
+  const GOOGLE_DISCLOSURE_KEY = "christinaLab.googleDisclosure.v1";
+
+  function validWorkspaceKey(value) {
+    return /^clw_[A-Za-z0-9_-]{24,100}$/.test(String(value || ""));
+  }
+
+  function randomWorkspaceKey() {
+    const bytes = new Uint8Array(32);
+    crypto.getRandomValues(bytes);
+    const token = btoa(String.fromCharCode(...bytes))
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/g, "");
+    return "clw_" + token;
+  }
+
+  function workspaceLink(accessKey) {
+    const url = new URL(location.href);
+    url.search = "";
+    url.searchParams.set("workspace", accessKey);
+    url.hash = "";
+    return url.toString();
+  }
+
+  function workspaceHeaders(extra = {}) {
+    const headers = { ...(extra || {}) };
+    if (state.workspaceAccessKey) {
+      headers["X-Christina-Workspace"] = state.workspaceAccessKey;
+    }
+    return headers;
+  }
 
   function readLiveSession() {
     try {
@@ -77,6 +110,11 @@
     creatorAgentProvider: "gemini",
     creatorAgentModel: "",
     creatorAgentProviders: null,
+    workspaceAccessKey: "",
+    workspaceReady: false,
+    workspaceType: "",
+    workspaceIsOwner: false,
+    workspaceError: "",
   };
 
   function writeLiveSession() {
@@ -184,6 +222,7 @@
 
   async function apiJson(path, options = {}) {
     const config = { ...options };
+    config.headers = workspaceHeaders(config.headers || {});
     if (config.body && typeof config.body !== "string") {
       config.headers = { "Content-Type": "application/json", ...(config.headers || {}) };
       config.body = JSON.stringify(config.body);
@@ -204,6 +243,70 @@
   async function fetchJson(path) {
     return apiJson(path);
   }
+
+  async function bootstrapWorkspace() {
+    state.workspaceError = "";
+    const queryKey = new URLSearchParams(location.search).get("workspace");
+    let accessKey = validWorkspaceKey(queryKey)
+      ? queryKey
+      : String(localStorage.getItem(WORKSPACE_STORAGE_KEY) || "");
+
+    if (!validWorkspaceKey(accessKey)) {
+      accessKey = "";
+      try {
+        const response = await fetch(API_BASE + "/api/workspace/claim-owner", { method: "POST" });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(payload.detail || "This private alpha workspace is already claimed.");
+        }
+        accessKey = String(payload.accessKey || "");
+        if (!validWorkspaceKey(accessKey)) throw new Error("Owner workspace claim did not return a valid key.");
+        localStorage.setItem(WORKSPACE_STORAGE_KEY, accessKey);
+      } catch (error) {
+        state.workspaceError = error?.message || "Open Christina Lab from a valid owner or tester invite link.";
+        state.workspaceReady = false;
+        return;
+      }
+    } else {
+      localStorage.setItem(WORKSPACE_STORAGE_KEY, accessKey);
+    }
+
+    state.workspaceAccessKey = accessKey;
+    window.CL_WORKSPACE_ID = accessKey;
+
+    try {
+      const status = await apiJson("/api/workspace/status");
+      state.workspaceType = String(status.workspaceType || "tester");
+      state.workspaceIsOwner = Boolean(status.isOwner);
+      state.workspaceReady = true;
+    } catch (error) {
+      state.workspaceError = error?.message || "Could not verify this private alpha workspace.";
+      state.workspaceReady = false;
+    }
+  }
+
+  function aiDisclosureKey(kind) {
+    return AI_DISCLOSURE_PREFIX + String(state.workspaceAccessKey || "").slice(-12) + "." + String(kind || "general");
+  }
+
+  function confirmAiShare(kind, details) {
+    const key = aiDisclosureKey(kind);
+    try {
+      if (localStorage.getItem(key) === "accepted") return true;
+    } catch (_) {}
+    const provider = state.creatorAgentProvider || "the configured AI provider";
+    const accepted = window.confirm(
+      "What will be shared with AI?\n\n" +
+      String(details || "Only the context needed for this generation.") +
+      "\n\nProvider: " + provider +
+      "\n\nNot included: your Google Drive contents, unrelated experiments, or social account access.\n\nContinue?"
+    );
+    if (accepted) {
+      try { localStorage.setItem(key, "accepted"); } catch (_) {}
+    }
+    return accepted;
+  }
+  window.CL_CONFIRM_AI_SHARE = confirmAiShare;
 
   async function loadPublicConfig(force = false) {
     if (state.publicConfigLoaded && !force) return;
