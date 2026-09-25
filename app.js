@@ -1788,12 +1788,12 @@
       <div class="section-label-row">
         <div>
           <div class="eyebrow">MARKET EVIDENCE</div>
-          <h2>What Christina Lab is observing</h2>
+          <h2>What this workspace is observing</h2>
         </div>
-        <p>Public YouTube observations help you spot opportunities. They are not your personal performance.</p>
+        <p>Public YouTube observations collected by this workspace help you spot opportunities. They are not your personal performance.</p>
       </div>
       <div class="metrics">
-        <div class="metric"><label>Public Videos Observed</label><div class="val num">${fmt(m.videosTracked || 0)}</div><div class="sec">candidates + channel-history videos</div></div>
+        <div class="metric"><label>Videos Observed Here</label><div class="val num">${fmt(m.videosTracked || 0)}</div><div class="sec">from this workspace's Discover searches</div></div>
         <div class="metric"><label>Metric Snapshots</label><div class="val num">${fmt(m.snapshotsStored || 0)}</div><div class="sec">timestamped public observations</div></div>
         <div class="metric"><label>Measured Growth Histories</label><div class="val num">${fmt(m.videosWithMultipleSnapshots || 0)}</div><div class="sec">videos with 2+ observations</div></div>
         <div class="metric"><label>Analyzed Search Results</label><div class="val num">${fmt(m.analyzedCandidates || 0)}</div><div class="sec">${fmt(m.topicsTracked || 0)} persisted Discover topics</div></div>
@@ -2447,7 +2447,7 @@
       <p class="sub">Repeated signals calculated from Christina Lab's persisted YouTube research. No invented hook labels or fake percentages.</p>
 
       <div class="metrics">
-        <div class="metric"><label>Public Videos Observed</label><div class="val num">${fmt(dataset.videosTracked || 0)}</div><div class="sec">all persisted research videos</div></div>
+        <div class="metric"><label>Videos Observed Here</label><div class="val num">${fmt(dataset.videosTracked || 0)}</div><div class="sec">this workspace's persisted research videos</div></div>
         <div class="metric"><label>Metric Snapshots</label><div class="val num">${fmt(dataset.snapshotsStored || 0)}</div><div class="sec">timestamped observations</div></div>
         <div class="metric"><label>Analyzed Search Results</label><div class="val num">${fmt(dataset.analyzedCandidates || 0)}</div><div class="sec">Discover candidates with stored scores</div></div>
         <div class="metric"><label>Measured Growth Histories</label><div class="val num">${fmt(dataset.growthPairs || 0)}</div><div class="sec">videos with 2+ snapshots</div></div>
@@ -2455,7 +2455,7 @@
 
       <div class="grid2">
         <div class="card">
-          <div class="card-h"><h2>Search Topic Signals</h2><p>Based on persisted Discover searches. More different queries = a more useful comparison.</p></div>
+          <div class="card-h"><h2>Search Topic Signals</h2><p>Based only on this workspace's persisted Discover searches. More different queries = a more useful comparison.</p></div>
           ${topics.length
             ? topics.map((row) => `<div class="rank"><span>${esc(row.topic)}</span><span>${fmt(row.videos)} analyzed videos</span><span>avg opp ${row.avgOpportunity == null ? "—" : Number(row.avgOpportunity).toFixed(1)}</span><span class="outlier">${row.medianOutlier == null ? "—" : Number(row.medianOutlier).toFixed(1) + "× median"}</span></div>`).join("") +
               (topics.length < 3 ? `<div class="meta" style="padding:10px 14px">Only ${topics.length} persisted search topic${topics.length === 1 ? "" : "s"} so far. Try distinct searches such as <b>AI tools</b>, <b>trading journal</b>, <b>copy trading</b>, and <b>build in public</b> to make cross-topic patterns more informative.</div>` : "")
