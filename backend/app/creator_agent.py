@@ -593,6 +593,13 @@ Rules:
 """
 
 
+def _long_form_ai_scene_prompt_count(duration_minutes: int) -> int:
+    """Keep long-form AI inserts useful without turning the pack into filler."""
+    if duration_minutes <= 0:
+        return 0
+    return max(4, min(8, ((duration_minutes + 1) // 2) + 1))
+
+
 async def generate_idea_production_docs(
     *,
     idea: dict[str, Any],
@@ -611,11 +618,7 @@ async def generate_idea_production_docs(
         else "Not applicable"
     )
     orientation = "16:9" if is_long_form else "9:16"
-    ai_scene_prompt_count = (
-        max(4, min(8, ((duration_minutes + 1) // 2) + 1))
-        if duration_minutes
-        else 0
-    )
+    ai_scene_prompt_count = _long_form_ai_scene_prompt_count(duration_minutes)
 
     prompt = f"""CHRISTINA LAB IDEA
 {json.dumps(idea, ensure_ascii=False)[:14000]}
