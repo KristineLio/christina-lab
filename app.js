@@ -1710,7 +1710,7 @@
         "&mode=" +
         encodeURIComponent(state.discoverMode) +
         "&max_results=25";
-      const response = await fetch(url);
+      const response = await fetch(url, { headers: workspaceHeaders() });
       if (!response.ok) {
         let message = "The YouTube backend could not load this search.";
         try {
