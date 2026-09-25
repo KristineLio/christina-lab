@@ -2551,6 +2551,66 @@
       </div>`;
   }
 
+  function trustAccess() {
+    const provider = state.creatorAgentConfigured
+      ? esc((state.creatorAgentProvider || "AI") + (state.creatorAgentModel ? " · " + state.creatorAgentModel : ""))
+      : "Not configured";
+    return `
+      <div class="trust-hero">
+        <div class="eyebrow">PRIVATE ALPHA</div>
+        <h2>You stay in control.</h2>
+        <p>Christina Lab uses AI to help with research, ideas and production material. It does not publish to your social accounts, send messages, or browse your Google Drive.</p>
+      </div>
+
+      <div class="trust-grid">
+        <div class="card trust-card">
+          <h2>Workspace isolation</h2>
+          <p><b>${state.workspaceIsOwner ? "Owner workspace" : "Private tester workspace"}</b></p>
+          <p class="meta">Creator workflow data is scoped by an unguessable private-alpha workspace key. Saved research, Ideas, Production Packs, uploads and Experiments in this workspace are kept separate from other tester workspaces.</p>
+          <p class="meta"><b>Alpha limitation:</b> this is invite-key isolation, not full account authentication yet. Anyone with a tester invite link can access that tester workspace, so treat the link like a password.</p>
+          ${state.workspaceIsOwner ? `
+            <div class="actions" style="justify-content:flex-start">
+              <button class="btn primary" id="createTesterInvite">Create private tester link</button>
+              <button class="btn" id="copyOwnerRecovery">Copy owner recovery link</button>
+            </div>
+            <p class="meta">Save your owner recovery link somewhere private. It is the key to your existing Christina Lab workspace if browser storage is cleared.</p>
+          ` : '<p class="meta">This tester link cannot access the owner workspace or another tester\'s workspace.</p>'}
+        </div>
+
+        <div class="card trust-card">
+          <h2>AI access</h2>
+          <p class="meta">Current provider: <b>${provider}</b></p>
+          <p>When you start an AI action, Christina Lab sends only the context needed for that generation. The first time you use each AI workflow, the app shows exactly what will be shared before continuing.</p>
+          <div class="trust-list">
+            <div>✓ Can generate ideas, scripts, plans and AI scene prompts</div>
+            <div>✓ Can analyze research or transcripts you choose to use</div>
+            <div>✕ Cannot publish to YouTube, TikTok or Instagram</div>
+            <div>✕ Cannot send messages or change social accounts</div>
+            <div>✕ Cannot independently execute actions without you starting the feature</div>
+          </div>
+        </div>
+
+        <div class="card trust-card">
+          <h2>Google Docs</h2>
+          <p>Google Docs is optional. Christina Lab requests <code>drive.file</code>, which lets it create and work with files created through Christina Lab rather than granting access to your whole Drive.</p>
+          <p class="meta">The Google access token is kept in browser memory for the session and is not stored in the Christina Lab database. Christina Lab stores the resulting Google Doc ID/link so it can show “Open Google Doc” later.</p>
+        </div>
+
+        <div class="card trust-card">
+          <h2>What Christina Lab stores</h2>
+          <p class="meta">Inside your private workspace:</p>
+          <div class="trust-list">
+            <div>• Saved Research and creator notes</div>
+            <div>• Ideas and hypotheses</div>
+            <div>• Generated Production Packs and uploaded idea files</div>
+            <div>• Experiments, metrics, results, lessons and decisions</div>
+            <div>• Google Doc IDs/links when you create a Google Doc</div>
+          </div>
+          <p class="meta">AI provider API keys and YouTube API keys stay server-side and are not exposed in the browser.</p>
+        </div>
+      </div>`;
+  }
+
   function settings() {
     return `
       <div class="card" style="padding:14px;margin-bottom:12px">
@@ -2638,6 +2698,9 @@
     } else if (path === "/watchlists") {
       title = "Watchlists";
       body = watchlists();
+    } else if (path === "/trust") {
+      title = "Trust & Access";
+      body = trustAccess();
     } else if (path === "/settings") {
       title = "Settings";
       body = settings();
