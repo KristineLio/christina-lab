@@ -344,6 +344,20 @@ body,
 
 
 /* Experiments · full edit flow */
+.btn.danger {
+  border-color: rgba(200, 66, 66, .38);
+  background: rgba(200, 66, 66, .06);
+  color: #a93434;
+}
+.btn.danger:hover {
+  border-color: rgba(200, 66, 66, .65);
+  background: rgba(200, 66, 66, .11);
+}
+.experiment-page-actions {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
 .experiment-page-head {
   display: flex;
   justify-content: space-between;
@@ -395,6 +409,10 @@ body,
   }
 }
 @media (max-width: 720px) {
+  .experiment-page-actions {
+    justify-content: flex-start;
+    margin-top: 10px;
+  }
   .experiment-page-head,
   .experiment-edit-head {
     display: block;
