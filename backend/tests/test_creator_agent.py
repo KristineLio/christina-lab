@@ -1,4 +1,5 @@
 from backend.app.creator_agent import (
+    IDEA_PRODUCTION_DOCS_SCHEMA,
     PACKAGE_SCHEMA,
     SAVED_RESEARCH_IDEA_SCHEMA,
     SHORT_MOMENTS_SCHEMA,
@@ -137,3 +138,15 @@ def test_saved_research_idea_schema_keeps_format_as_user_constraint():
     assert "hypothesis" in props
     assert "notes" in props
     assert "contentType" not in props
+
+
+
+def test_idea_production_docs_schema_contains_video_prompt_and_photo_reference():
+    props = IDEA_PRODUCTION_DOCS_SCHEMA["properties"]
+    assert set(props) == {
+        "script",
+        "productionPlan",
+        "videoPrompt",
+        "photoReference",
+    }
+    assert set(IDEA_PRODUCTION_DOCS_SCHEMA["required"]) == set(props)
