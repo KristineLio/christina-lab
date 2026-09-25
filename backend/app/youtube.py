@@ -33,9 +33,11 @@ class YouTubeClient:
         api_key: str,
         *,
         snapshot_store: SnapshotStore | None = None,
+        workspace_id: str = "owner",
     ) -> None:
         self.api_key = api_key
         self.snapshot_store = snapshot_store or SnapshotStore()
+        self.workspace_id = workspace_id
 
     async def _get(
         self,
@@ -105,7 +107,7 @@ class YouTubeClient:
                     "count": 0,
                     "videos": [],
                     "baselineMeta": self._baseline_meta(),
-                    "snapshotMeta": self.snapshot_store.stats(),
+                    "snapshotMeta": self.snapshot_store.stats(workspace_id=self.workspace_id),
                 }
 
             videos_payload = await self._get(
@@ -199,6 +201,7 @@ class YouTubeClient:
         inserted_snapshots = self.snapshot_store.record_snapshots(
             snapshot_records,
             observed_at=now,
+            workspace_id=self.workspace_id,
         )
 
         results = []
@@ -255,6 +258,7 @@ class YouTubeClient:
                 target_age_hours=float(derived["ageHours"] or 0),
                 min_samples=self.BASELINE_MIN_SAMPLE,
                 max_samples=self.BASELINE_MAX_SAMPLES,
+                workspace_id=self.workspace_id,
             )
 
             if historical.get("ready") and historical.get("baseline"):
@@ -310,7 +314,10 @@ class YouTubeClient:
             )
 
             video_id = item["id"]
-            snapshot_history = self.snapshot_store.video_snapshots(video_id)
+            snapshot_history = self.snapshot_store.video_snapshots(
+                video_id,
+                workspace_id=self.workspace_id,
+            )
             results.append(
                 {
                     "id": video_id,
@@ -347,6 +354,7 @@ class YouTubeClient:
             results,
             topic=query,
             observed_at=now,
+            workspace_id=self.workspace_id,
         )
 
         results.sort(
@@ -364,7 +372,7 @@ class YouTubeClient:
             "videos": results,
             "baselineMeta": self._baseline_meta(),
             "snapshotMeta": {
-                **self.snapshot_store.stats(),
+                **self.snapshot_store.stats(workspace_id=self.workspace_id),
                 "insertedThisSearch": inserted_snapshots,
                 "analysesStoredThisSearch": analyzed_rows,
             },
