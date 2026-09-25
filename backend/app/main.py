@@ -19,7 +19,9 @@ from .creator_agent import (
     creator_agent_configured,
     creator_agent_model,
     creator_agent_provider,
+    analyze_short_transcript,
     generate_package,
+    generate_short_package,
     load_github_repo_context,
     provider_status,
     relevant_saved_research,
@@ -147,6 +149,33 @@ class CreatorAgentSource(BaseModel):
 class CreatorAgentPackageRequest(CreatorAgentResearchRequest):
     angle: CreatorAgentAngle
     sourceMaterials: list[CreatorAgentSource] = Field(default_factory=list)
+
+
+class CreatorAgentShortMoment(BaseModel):
+    id: str = Field(min_length=1, max_length=80)
+    startSeconds: float = Field(ge=0)
+    endSeconds: float = Field(ge=0)
+    frameTimeSeconds: float = Field(ge=0)
+    label: str = Field(default="", max_length=240)
+    sourceParaphrase: str = Field(default="", max_length=2000)
+    mechanism: str = Field(default="", max_length=2000)
+    whyStrong: str = Field(default="", max_length=3000)
+    shortDirection: str = Field(default="", max_length=3000)
+
+
+class CreatorAgentShortAnalyzeRequest(BaseModel):
+    source: CreatorAgentSource
+    transcript: str = Field(min_length=20, max_length=50000)
+    platform: str = Field(default="YouTube Shorts", max_length=80)
+
+
+class CreatorAgentShortGenerateRequest(BaseModel):
+    source: CreatorAgentSource
+    transcript: str = Field(min_length=20, max_length=50000)
+    moment: CreatorAgentShortMoment
+    platform: str = Field(default="YouTube Shorts", max_length=80)
+    durationSeconds: int = Field(default=8, ge=4, le=15)
+    hasReferenceFrame: bool = False
 
 
 class ExperimentCreate(BaseModel):
@@ -507,6 +536,68 @@ async def creator_agent_research(payload: CreatorAgentResearchRequest) -> dict:
         "contentType": payload.contentType.strip() or "Long-form",
         "youtubeCount": len(sources),
         "savedResearchCount": len(saved),
+    }
+
+
+@app.post("/api/agent/shorts/analyze")
+async def creator_agent_short_analyze(payload: CreatorAgentShortAnalyzeRequest) -> dict:
+    if not creator_agent_configured():
+        raise HTTPException(
+            status_code=503,
+            detail="Creator Agent is not configured. Add a key for the selected AI provider.",
+        )
+
+    source = payload.source.model_dump()
+    try:
+        result = await analyze_short_transcript(
+            source_title=str(source.get("title") or "Reference video").strip(),
+            source_url=str(source.get("url") or "").strip(),
+            transcript=payload.transcript.strip(),
+            platform=payload.platform.strip() or "YouTube Shorts",
+        )
+    except CreatorAgentError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    return {
+        **result,
+        "source": source,
+        "platform": payload.platform.strip() or "YouTube Shorts",
+        "provider": result.get("_agentProvider") or creator_agent_provider(),
+        "model": result.get("_agentModel") or creator_agent_model(),
+    }
+
+
+@app.post("/api/agent/shorts/generate")
+async def creator_agent_short_generate(payload: CreatorAgentShortGenerateRequest) -> dict:
+    if not creator_agent_configured():
+        raise HTTPException(
+            status_code=503,
+            detail="Creator Agent is not configured. Add a key for the selected AI provider.",
+        )
+
+    source = payload.source.model_dump()
+    moment = payload.moment.model_dump()
+    try:
+        result = await generate_short_package(
+            source_title=str(source.get("title") or "Reference video").strip(),
+            source_url=str(source.get("url") or "").strip(),
+            transcript=payload.transcript.strip(),
+            chosen_moment=moment,
+            platform=payload.platform.strip() or "YouTube Shorts",
+            duration_seconds=payload.durationSeconds,
+            has_reference_frame=payload.hasReferenceFrame,
+        )
+    except CreatorAgentError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    return {
+        **result,
+        "source": source,
+        "moment": moment,
+        "platform": payload.platform.strip() or "YouTube Shorts",
+        "durationSeconds": payload.durationSeconds,
+        "provider": result.get("_agentProvider") or creator_agent_provider(),
+        "model": result.get("_agentModel") or creator_agent_model(),
     }
 
 
