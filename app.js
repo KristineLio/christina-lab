@@ -2045,7 +2045,7 @@
     const decisions = summary.decisions || {};
 
     return `
-      <p class="sub">Market research vs Christina's own experiment evidence. Every value on this page comes from persisted Christina Lab data.</p>
+      <p class="sub">Keep market evidence and creator evidence separate. Public research tells you what may be worth testing; your own experiments tell you what actually works for you.</p>
 
       <div class="metrics">
         <div class="metric"><label>Saved Research</label><div class="val num">${fmt(summary.savedResearch || 0)}</div><div class="sec">real saved YouTube research</div></div>
@@ -2056,7 +2056,7 @@
 
       <div class="grid2">
         <div class="card">
-          <div class="card-h"><h2>Market Signals</h2><p>Persisted Discover research by topic.</p></div>
+          <div class="card-h"><h2>Market Evidence</h2><p>What public research is showing by topic.</p></div>
           ${marketTopics.length
             ? marketTopics.map((row) => `<div class="rank">
                 <span>${esc(row.topic)}</span>
@@ -2068,7 +2068,7 @@
         </div>
 
         <div class="card">
-          <div class="card-h"><h2>Christina Signals</h2><p>What your own recorded experiments currently say.</p></div>
+          <div class="card-h"><h2>Your Creator Evidence</h2><p>What your own recorded experiments currently support.</p></div>
           ${creatorSignals.length
             ? creatorSignals.map((row) => `<div class="rank">
                 <span>${esc(row.topic)}</span>
@@ -2123,7 +2123,7 @@
           : "Not configured · default provider Gemini"}</p>
         <p>AI appears inside the creator workflow where it is useful: turning saved research into an idea, extracting short-worthy moments, and generating production packs. The evidence and final creative decisions stay with you.</p>
         ${state.creatorAgentConfigured
-          ? '<div class="actions" style="justify-content:flex-start"><button class="btn" data-go="/saved">Use in Saved Research</button><button class="btn" data-go="/ideas">Use in Ideas</button></div>'
+          ? '<div class="actions" style="justify-content:flex-start"><button class="btn" data-go="/saved">Use in Saved Research</button><button class="btn" data-go="/ideas">Use in Ideas</button><button class="btn ghost" data-go="/agent">Advanced source tools</button></div>'
           : '<p class="meta">For the free alpha: set <code>AI_PROVIDER=gemini</code> and add <code>GEMINI_API_KEY</code>. Optional fallbacks: Groq, OpenRouter, OpenAI, or a local OpenAI-compatible model.</p>'}
       </div>
       <div class="card" style="padding:14px">
