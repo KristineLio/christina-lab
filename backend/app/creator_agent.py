@@ -368,6 +368,101 @@ PACKAGE_SCHEMA: dict[str, Any] = {
 }
 
 
+SHORT_MOMENTS_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "summary": {"type": "string"},
+        "moments": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 3,
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "id": {"type": "string"},
+                    "startSeconds": {"type": "number"},
+                    "endSeconds": {"type": "number"},
+                    "frameTimeSeconds": {"type": "number"},
+                    "label": {"type": "string"},
+                    "sourceParaphrase": {"type": "string"},
+                    "mechanism": {"type": "string"},
+                    "whyStrong": {"type": "string"},
+                    "shortDirection": {"type": "string"},
+                },
+                "required": [
+                    "id",
+                    "startSeconds",
+                    "endSeconds",
+                    "frameTimeSeconds",
+                    "label",
+                    "sourceParaphrase",
+                    "mechanism",
+                    "whyStrong",
+                    "shortDirection",
+                ],
+            },
+        },
+    },
+    "required": ["summary", "moments"],
+}
+
+
+SHORT_PACKAGE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "sourceMechanism": {"type": "string"},
+        "variants": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 3,
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "id": {"type": "string"},
+                    "name": {"type": "string"},
+                    "hook": {"type": "string"},
+                    "voiceover": {"type": "string"},
+                    "onScreenText": {"type": "string"},
+                    "captionIdea": {"type": "string"},
+                    "shotPlan": {
+                        "type": "array",
+                        "minItems": 3,
+                        "maxItems": 3,
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "properties": {
+                                "start": {"type": "number"},
+                                "end": {"type": "number"},
+                                "visual": {"type": "string"},
+                                "action": {"type": "string"},
+                            },
+                            "required": ["start", "end", "visual", "action"],
+                        },
+                    },
+                    "aiStudioPrompt": {"type": "string"},
+                },
+                "required": [
+                    "id",
+                    "name",
+                    "hook",
+                    "voiceover",
+                    "onScreenText",
+                    "captionIdea",
+                    "shotPlan",
+                    "aiStudioPrompt",
+                ],
+            },
+        },
+    },
+    "required": ["sourceMechanism", "variants"],
+}
+
+
 SYSTEM_INSTRUCTIONS = """You are Christina Lab's Creator Agent.
 Your job is to turn evidence into creator decisions and production material.
 
@@ -386,6 +481,126 @@ Rules:
 - Treat bold packaging as a hypothesis to test, not as permission to invent evidence. The title/thumbnail may create curiosity, but the body must earn the click with real proof.
 - Never fabricate screenshots, code, terminal results, test counts, recruiter reactions, hiring statistics, or product behavior.
 """
+
+
+async def analyze_short_transcript(
+    *,
+    source_title: str,
+    source_url: str,
+    transcript: str,
+    platform: str,
+) -> dict[str, Any]:
+    prompt = f"""SOURCE VIDEO
+Title: {source_title}
+URL: {source_url}
+
+TARGET SHORT PLATFORM
+{platform}
+
+TIMESTAMPED TRANSCRIPT
+{transcript[:50000]}
+
+Find exactly three distinct moments with the strongest potential to inspire an ORIGINAL short-form video.
+
+Requirements:
+- The transcript is evidence. Do not claim visual details that are not stated in it.
+- Prefer moments with a clear reveal, tension/open loop, useful mistake, transformation, surprising result, or compact insight.
+- startSeconds/endSeconds/frameTimeSeconds must be grounded in timestamps that actually appear in the transcript. If a line has one timestamp only, use a reasonable short window around that timestamp without pretending the source supplied an exact end time.
+- sourceParaphrase must paraphrase the source moment rather than reproduce the creator's distinctive wording.
+- mechanism should explain the storytelling pattern abstractly, e.g. "proof first -> question -> explanation".
+- shortDirection should explain how to make a new short from the mechanism without remaking the source.
+- The three moments should be meaningfully different when the transcript supports it.
+"""
+
+    result, provider_attempt = await _structured_response(
+        instructions=SYSTEM_INSTRUCTIONS + """
+Source-to-Short rules:
+- Learn from the source mechanism, never copy another creator's script.
+- Avoid close paraphrase of distinctive source wording.
+- Do not imitate a creator's identity, voice, or likeness.
+- Prefer transferrable structure, pacing, tension, proof, and visual logic.
+""",
+        prompt=prompt,
+        schema_name="creator_agent_short_moments",
+        schema=SHORT_MOMENTS_SCHEMA,
+        max_output_tokens=3500,
+    )
+    return {
+        **result,
+        "_agentProvider": provider_attempt.provider,
+        "_agentModel": provider_attempt.model,
+    }
+
+
+async def generate_short_package(
+    *,
+    source_title: str,
+    source_url: str,
+    transcript: str,
+    chosen_moment: dict[str, Any],
+    platform: str,
+    duration_seconds: int,
+    has_reference_frame: bool,
+) -> dict[str, Any]:
+    prompt = f"""SOURCE VIDEO
+Title: {source_title}
+URL: {source_url}
+
+TARGET
+Platform: {platform}
+Duration: {duration_seconds} seconds
+Aspect ratio: 9:16
+Reference frame supplied by user: {"yes" if has_reference_frame else "no"}
+
+USER-SELECTED SOURCE MOMENT
+{json.dumps(chosen_moment, ensure_ascii=False)}
+
+NEARBY / FULL TRANSCRIPT EVIDENCE
+{transcript[:50000]}
+
+Create exactly three meaningfully different ORIGINAL short-video packages:
+1. Proof First
+2. Tension First
+3. Original Reframe
+
+For every variant:
+- write new wording; do not quote or closely paraphrase the source creator;
+- keep spoken copy realistic for {duration_seconds} seconds;
+- make the first 1-2 seconds immediately understandable;
+- create exactly three chronological shot-plan beats that fit inside {duration_seconds} seconds;
+- the AI Studio prompt must be complete and paste-ready;
+- if a reference image is supplied, tell AI Studio to use it for composition, environment, lighting, props, and continuity;
+- do not instruct the model to clone or impersonate an identifiable person in the reference image;
+- if a person is visible, request a generic/original presenter unless the uploader has rights to reproduce that likeness;
+- preserve only supported factual ideas from the source;
+- no fake UI, fake metrics, invented products, watermarks, gibberish text, or generic cinematic AI-ad language.
+
+The AI Studio prompt must explicitly include:
+- {duration_seconds}s duration and 9:16 vertical format;
+- the variant's hook and original voiceover intent;
+- on-screen text;
+- 0-{min(2, duration_seconds)}s, middle, and final shot timing;
+- reference-image handling;
+- natural creator-style pacing and a clean ending suitable for looping.
+"""
+
+    result, provider_attempt = await _structured_response(
+        instructions=SYSTEM_INSTRUCTIONS + """
+Source-to-Short rules:
+- The output is an original derivative concept, not a remake.
+- Extract mechanism and transferable creative logic, not another creator's expression.
+- Never imply the user owns or is the person shown in a reference image.
+""",
+        prompt=prompt,
+        schema_name="creator_agent_short_package",
+        schema=SHORT_PACKAGE_SCHEMA,
+        max_output_tokens=6500,
+    )
+    return {
+        **result,
+        "_agentProvider": provider_attempt.provider,
+        "_agentModel": provider_attempt.model,
+    }
 
 
 async def research_angles(
