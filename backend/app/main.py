@@ -361,18 +361,30 @@ async def patterns() -> dict:
 
 
 @app.get("/api/workflow")
-async def workflow() -> dict:
-    return snapshot_store.workflow_summary()
+async def workflow(
+    x_christina_workspace: str | None = Header(default=None, alias="X-Christina-Workspace"),
+) -> dict:
+    return snapshot_store.workflow_summary(
+        workspace_id=_workspace_id(x_christina_workspace)
+    )
 
 
 @app.get("/api/research")
-async def saved_research() -> dict:
-    items = snapshot_store.list_saved_research()
+async def saved_research(
+    x_christina_workspace: str | None = Header(default=None, alias="X-Christina-Workspace"),
+) -> dict:
+    workspace_id = _workspace_id(x_christina_workspace)
+    items = snapshot_store.list_saved_research(workspace_id=workspace_id)
     return {"count": len(items), "items": items}
 
 
 @app.put("/api/research/{video_id}")
-async def save_research(video_id: str, payload: ResearchUpdate) -> dict:
+async def save_research(
+    video_id: str,
+    payload: ResearchUpdate,
+    x_christina_workspace: str | None = Header(default=None, alias="X-Christina-Workspace"),
+) -> dict:
+    workspace_id = _workspace_id(x_christina_workspace)
     try:
         return snapshot_store.save_research(
             video_id,
@@ -380,14 +392,21 @@ async def save_research(video_id: str, payload: ResearchUpdate) -> dict:
             adapt=payload.adapt,
             angle=payload.angle,
             collection=payload.collection,
+            workspace_id=workspace_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.delete("/api/research/{video_id}")
-async def delete_research(video_id: str) -> dict:
-    deleted = snapshot_store.remove_saved_research(video_id)
+async def delete_research(
+    video_id: str,
+    x_christina_workspace: str | None = Header(default=None, alias="X-Christina-Workspace"),
+) -> dict:
+    deleted = snapshot_store.remove_saved_research(
+        video_id,
+        workspace_id=_workspace_id(x_christina_workspace),
+    )
     return {"videoId": video_id, "deleted": deleted}
 
 
