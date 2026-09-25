@@ -904,6 +904,14 @@ async def update_experiment(experiment_id: int, payload: ExperimentUpdate) -> di
     return item
 
 
+@app.delete("/api/experiments/{experiment_id}")
+async def delete_experiment(experiment_id: int) -> dict:
+    deleted = snapshot_store.delete_experiment(experiment_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Experiment not found.")
+    return {"experimentId": experiment_id, "deleted": True}
+
+
 # Serve the lightweight frontend from the same Render service for the alpha deployment.
 @app.get("/", include_in_schema=False)
 async def frontend_index():
