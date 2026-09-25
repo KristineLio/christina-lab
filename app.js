@@ -953,6 +953,30 @@
     };
   }
 
+  async function deleteExperiment(exp) {
+    if (!exp) return false;
+    const code = "EXP-" + String(exp.id).padStart(3, "0");
+    const confirmed = window.confirm(
+      "Delete " + code + "?\n\nThis permanently removes this experiment, its recorded metrics, result, lesson, and decision. The source Idea will remain."
+    );
+    if (!confirmed) return false;
+
+    try {
+      await apiJson("/api/experiments/" + Number(exp.id), {
+        method: "DELETE",
+      });
+      $("modal").hidden = true;
+      state.workflowLoaded = false;
+      await loadWorkflowData(true);
+      toast(code + " deleted");
+      navigate("/lab");
+      return true;
+    } catch (error) {
+      toast(error?.message || "Could not delete experiment");
+      return false;
+    }
+  }
+
   function openExperimentEditModal(exp) {
     if (!exp) return;
     const m = $("modal");
@@ -1036,6 +1060,8 @@
         </label>
 
         <div class="actions experiment-edit-actions">
+          <button class="btn danger" type="button" id="deleteExperimentFromModal">Delete experiment</button>
+          <span class="grow"></span>
           <button class="btn ghost" type="button" id="cancelExperimentEdit">Cancel</button>
           <button class="btn primary" type="submit">Save changes</button>
         </div>
@@ -1045,6 +1071,12 @@
     const close = () => (m.hidden = true);
     $("cancelM").onclick = close;
     $("cancelExperimentEdit").onclick = close;
+    $("deleteExperimentFromModal").onclick = async (e) => {
+      const button = e.currentTarget;
+      button.disabled = true;
+      const deleted = await deleteExperiment(exp);
+      if (!deleted) button.disabled = false;
+    };
     m.onclick = (e) => {
       if (e.target === m) close();
     };
@@ -1839,7 +1871,10 @@
           <h2 style="margin:0">${esc(x.name)}</h2>
           <div class="meta" style="margin-top:5px">${esc(x.topic || "Unspecified")} · ${esc(x.format || "")}</div>
         </div>
-        <button class="btn primary" type="button" data-edit-exp="${x.id}">Edit experiment</button>
+        <div class="actions experiment-page-actions">
+          <button class="btn primary" type="button" data-edit-exp="${x.id}">Edit experiment</button>
+          <button class="btn danger" type="button" data-delete-exp="${x.id}">Delete experiment</button>
+        </div>
       </div>
       <div class="card" style="padding:14px;margin-bottom:12px">
         <div class="meta">Hypothesis</div>
@@ -2236,6 +2271,15 @@
       button.onclick = () => {
         const exp = state.experiments.find((item) => String(item.id) === String(button.dataset.editExp));
         if (exp) openExperimentEditModal(exp);
+      };
+    });
+    document.querySelectorAll("[data-delete-exp]").forEach((button) => {
+      button.onclick = async () => {
+        const exp = state.experiments.find((item) => String(item.id) === String(button.dataset.deleteExp));
+        if (!exp) return;
+        button.disabled = true;
+        const deleted = await deleteExperiment(exp);
+        if (!deleted) button.disabled = false;
       };
     });
     document.querySelectorAll(".dec").forEach((s) => {
