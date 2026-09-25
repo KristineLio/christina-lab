@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import re
@@ -192,6 +193,73 @@ def compact_youtube_sources(videos: list[dict[str, Any]], limit: int = 10) -> li
             }
         )
     return rows
+
+
+def _timestamp_label(seconds: float) -> str:
+    total = max(0, int(seconds))
+    minutes, secs = divmod(total, 60)
+    hours, minutes = divmod(minutes, 60)
+    if hours:
+        return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+    return f"{minutes:02d}:{secs:02d}"
+
+
+async def load_public_youtube_transcript(video_id: str) -> dict[str, Any]:
+    clean_id = re.sub(r"[^A-Za-z0-9_-]", "", str(video_id or ""))[:32]
+    if not clean_id:
+        raise CreatorAgentError("A valid YouTube video ID is required.")
+
+    try:
+        from youtube_transcript_api import YouTubeTranscriptApi
+    except ImportError as exc:
+        raise CreatorAgentError(
+            "Automatic transcript retrieval is not installed on this deployment."
+        ) from exc
+
+    def fetch():
+        return YouTubeTranscriptApi().fetch(clean_id)
+
+    try:
+        transcript = await asyncio.to_thread(fetch)
+    except Exception as exc:
+        raise CreatorAgentError(
+            "YouTube captions could not be loaded for this video. "
+            "The creator may have disabled captions, the language may be unavailable, "
+            "or YouTube may be blocking this server. Paste the timestamped transcript manually instead."
+        ) from exc
+
+    snippets = []
+    for item in transcript:
+        text = re.sub(r"\s+", " ", str(getattr(item, "text", "") or "")).strip()
+        start = float(getattr(item, "start", 0) or 0)
+        duration = float(getattr(item, "duration", 0) or 0)
+        if not text:
+            continue
+        snippets.append(
+            {
+                "text": text,
+                "start": start,
+                "duration": duration,
+            }
+        )
+
+    if not snippets:
+        raise CreatorAgentError(
+            "YouTube returned an empty transcript. Paste a timestamped transcript manually."
+        )
+
+    timestamped = "\n".join(
+        f"{_timestamp_label(item['start'])} {item['text']}"
+        for item in snippets
+    )
+    return {
+        "videoId": clean_id,
+        "language": str(getattr(transcript, "language", "") or ""),
+        "languageCode": str(getattr(transcript, "language_code", "") or ""),
+        "isGenerated": bool(getattr(transcript, "is_generated", False)),
+        "snippetCount": len(snippets),
+        "transcript": timestamped[:50000],
+    }
 
 
 ANGLE_SCHEMA: dict[str, Any] = {
