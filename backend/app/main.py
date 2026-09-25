@@ -226,6 +226,25 @@ IDEA_DOCUMENT_EXTENSIONS = {".docx", ".pdf", ".md", ".txt", ".png", ".jpg", ".jp
 IDEA_DOCUMENT_MAX_BYTES = 5 * 1024 * 1024
 
 
+WORKSPACE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{12,128}$")
+
+
+def _workspace_id(raw: str | None) -> str:
+    """Resolve the creator workspace for private-alpha workflow data.
+
+    The existing owner workspace stays addressable without a header so the
+    current deployment preserves Christina's data. Tester invite links send an
+    opaque workspace ID in X-Christina-Workspace.
+    """
+
+    value = str(raw or "").strip()
+    if not value:
+        return "owner"
+    if not WORKSPACE_ID_PATTERN.fullmatch(value):
+        raise HTTPException(status_code=400, detail="Invalid workspace key.")
+    return value
+
+
 def _model_changes(model: BaseModel) -> dict:
     return model.model_dump(exclude_unset=True)
 
@@ -282,6 +301,9 @@ async def public_config() -> dict:
         "creatorAgentProvider": creator_agent_provider(),
         "creatorAgentModel": creator_agent_model() if creator_agent_configured() else "",
         "creatorAgentProviders": provider_status(),
+        "workspaceIsolation": "private-alpha-key",
+        "googleTokenStorage": "browser-memory",
+        "agentCanPublish": False,
     }
 
 
