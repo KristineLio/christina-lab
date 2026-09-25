@@ -436,6 +436,24 @@ PACKAGE_SCHEMA: dict[str, Any] = {
 }
 
 
+IDEA_PRODUCTION_DOCS_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "script": {"type": "string"},
+        "productionPlan": {"type": "string"},
+        "videoPrompt": {"type": "string"},
+        "photoReference": {"type": "string"},
+    },
+    "required": [
+        "script",
+        "productionPlan",
+        "videoPrompt",
+        "photoReference",
+    ],
+}
+
+
 SAVED_RESEARCH_IDEA_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
@@ -573,6 +591,114 @@ Rules:
 - Treat bold packaging as a hypothesis to test, not as permission to invent evidence. The title/thumbnail may create curiosity, but the body must earn the click with real proof.
 - Never fabricate screenshots, code, terminal results, test counts, recruiter reactions, hiring statistics, or product behavior.
 """
+
+
+async def generate_idea_production_docs(
+    *,
+    idea: dict[str, Any],
+    source_research: dict[str, Any] | None,
+    platform: str,
+) -> dict[str, Any]:
+    content_type = "Short" if str(idea.get("type") or "") == "Short" else "Long-form"
+    platform = str(platform or "").strip()
+
+    prompt = f"""CHRISTINA LAB IDEA
+{json.dumps(idea, ensure_ascii=False)[:14000]}
+
+SOURCE SAVED RESEARCH
+{json.dumps(source_research, ensure_ascii=False)[:14000] if source_research else "No saved source research is attached."}
+
+IDEA CONTENT TYPE
+{content_type}
+
+USER-CHOSEN PRODUCTION PLATFORM
+{platform}
+
+Create four production-ready documents for this existing idea:
+1. script
+2. productionPlan
+3. videoPrompt
+4. photoReference
+
+The idea's content type and the user's platform choice are HARD CONSTRAINTS. Do not change either.
+
+PLATFORM RULES
+- YouTube Shorts: vertical 9:16; clear first-second hook; concise explanation; readable captions; strong visual proof.
+- TikTok: vertical 9:16; immediate conversational hook; fast creator pacing; natural phone-first visual language.
+- Pinterest: vertical 9:16; clean, save-worthy, visually organized framing; strong readable text; useful/inspirational rather than chaotic pacing.
+- Instagram: vertical 9:16; polished creator aesthetic; strong visual composition; clean text and transitions; engaging without looking like a generic ad.
+
+CONTENT-TYPE RULES
+If the idea is Short:
+- script must be a complete short-form script sized for one publishable short;
+- productionPlan must be a concise shot-by-shot plan;
+- videoPrompt must describe the full short that can be generated/assembled from short AI clips;
+- keep one core idea and one clear payoff.
+
+If the idea is Long-form:
+- script must be a structured long-form first draft or detailed narration outline appropriate to the idea;
+- productionPlan must cover the full long-form video;
+- videoPrompt must NOT pretend one generative-video call can create the whole long-form video;
+- instead, videoPrompt should be for the strongest platform-compatible opening/hero/teaser scene that supports the long-form piece;
+- clearly label which remaining long-form footage must be real capture, screen recording, B-roll, or separately generated scenes.
+
+SCRIPT DOCUMENT
+- Start with a heading that states Content type and Platform.
+- Use the existing idea's title, hook, angle, audience and hypothesis as evidence.
+- Do not invent project facts, results, metrics, income, tests, personal history, or outcomes.
+- Make wording original; never copy the source creator's script or title.
+
+PRODUCTION PLAN DOCUMENT
+- Include platform, content type, target orientation, pacing, asset needs, shot/scene plan, on-screen text, edit notes, and definition of done.
+- Separate VERIFIED/SUPPLIED material from REQUIRED CAPTURE and OPTIONAL AI-GENERATED material.
+- When source research includes a thumbnail URL, label it only as an available SOURCE THUMBNAIL, not as proof that it is the correct frame for the new video.
+
+VIDEO PROMPT DOCUMENT
+- Must contain one clearly marked, copy-paste-ready AI Studio / Veo-style prompt.
+- State Platform, 9:16 aspect ratio, suggested duration, tone, subject/action, environment, camera behavior, lighting, pacing, on-screen text, narration/voiceover intent, and ending.
+- Tell the model to use a supplied reference image for composition/environment/continuity only.
+- Do not instruct it to clone or impersonate an identifiable real person.
+- If a person is needed, request an original/generic presenter unless the user has rights to reproduce the likeness.
+- Do not request fake UI, fake data, fabricated screenshots, gibberish text, watermarks, or unsupported claims.
+
+PHOTO REFERENCE DOCUMENT
+This is a truthful reference-image brief, not a claim that an image was already generated.
+Include:
+- Reference goal
+- Recommended source: REAL CAPTURE, USER-SUPPLIED IMAGE, or GENERATED REFERENCE
+- Exact subject
+- Framing/camera angle
+- Environment/background
+- Props/screens that may appear
+- Lighting and mood
+- Orientation: 9:16
+- What must remain readable / what must not be fabricated
+- A clearly marked IMAGE GENERATION PROMPT that can be used to create the still reference when no suitable real image exists
+- A clearly marked REAL CAPTURE INSTRUCTION describing what screenshot/photo to take if a real project/source image is preferable
+
+The output must be practical enough that the user can open Idea Documents, copy the video prompt, prepare the photo reference, and start producing immediately.
+"""
+
+    result, provider_attempt = await _structured_response(
+        instructions=SYSTEM_INSTRUCTIONS + """
+Idea Production Documents rules:
+- The user's selected platform is a hard constraint.
+- The idea's Short / Long-form format is a hard constraint.
+- Produce executable production material, not generic brainstorming.
+- A photo-reference document is a reference brief/capture-or-generation instruction unless a real image has actually been supplied.
+- Never imply that an image, screenshot, project behavior, or performance result exists unless the supplied evidence proves it.
+""",
+        prompt=prompt,
+        schema_name="creator_agent_idea_production_docs",
+        schema=IDEA_PRODUCTION_DOCS_SCHEMA,
+        max_output_tokens=9000,
+    )
+
+    return {
+        **result,
+        "_agentProvider": provider_attempt.provider,
+        "_agentModel": provider_attempt.model,
+    }
 
 
 async def generate_idea_from_saved_research(
