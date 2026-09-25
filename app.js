@@ -638,6 +638,11 @@
       return;
     }
 
+    if (!confirmAiShare(
+      "saved-research-idea",
+      "This saved research item's title, metrics, Why / Adapt / Angle notes, and your chosen " + contentType + " format will be sent for idea generation."
+    )) return;
+
     const original = button ? button.textContent : "";
     if (button) {
       button.disabled = true;
@@ -1134,6 +1139,12 @@
           toast("Choose a target length between 3 and 20 minutes");
           return;
         }
+        if (!confirmAiShare(
+          "production-pack",
+          "This Idea's title, hook, topic, angle, audience, hypothesis, attached saved-research context, selected platform" +
+            (isLongForm ? ", and target runtime" : "") +
+            " will be sent to generate the Production Pack."
+        )) return;
         const original = generateDocsButton.textContent;
         generateDocsButton.disabled = true;
         generateDocsButton.textContent = "Generating…";
