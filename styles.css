@@ -340,6 +340,49 @@ body,
 }
 
 
+
+/* Saved Research · Agent → Idea */
+.saved-agent-idea {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) auto;
+  gap: 8px;
+  align-items: end;
+  margin-top: 12px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+}
+.saved-agent-idea label {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.saved-agent-type {
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surf);
+  color: var(--text);
+  padding: 0 9px;
+  font: inherit;
+}
+.saved-agent-table {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+  align-items: center;
+}
+.saved-agent-table .saved-agent-type {
+  width: 110px;
+}
+@media (max-width: 720px) {
+  .saved-agent-idea { grid-template-columns: 1fr; }
+  .saved-agent-idea .btn { width: 100%; }
+}
+
 /* Creator Agent */
 .agent-hero {
   padding: 18px;

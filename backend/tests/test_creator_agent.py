@@ -1,5 +1,6 @@
 from backend.app.creator_agent import (
     PACKAGE_SCHEMA,
+    SAVED_RESEARCH_IDEA_SCHEMA,
     SHORT_MOMENTS_SCHEMA,
     SHORT_PACKAGE_SCHEMA,
     _github_repo_parts,
@@ -124,3 +125,15 @@ def test_short_package_schema_is_ai_studio_ready():
     shots = item["properties"]["shotPlan"]
     assert shots["minItems"] == 3
     assert shots["maxItems"] == 3
+
+
+
+def test_saved_research_idea_schema_keeps_format_as_user_constraint():
+    props = SAVED_RESEARCH_IDEA_SCHEMA["properties"]
+    assert "title" in props
+    assert "hook" in props
+    assert "angle" in props
+    assert "audience" in props
+    assert "hypothesis" in props
+    assert "notes" in props
+    assert "contentType" not in props

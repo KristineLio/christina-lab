@@ -20,6 +20,7 @@ from .creator_agent import (
     creator_agent_model,
     creator_agent_provider,
     analyze_short_transcript,
+    generate_idea_from_saved_research,
     generate_package,
     generate_short_package,
     load_github_repo_context,
@@ -108,6 +109,10 @@ class IdeaDocumentCloudUpdate(BaseModel):
     provider: str = Field(min_length=1, max_length=40)
     fileId: str = Field(min_length=1, max_length=240)
     url: str = Field(min_length=1, max_length=1000)
+
+
+class SavedResearchAgentIdeaRequest(BaseModel):
+    contentType: str = Field(min_length=1, max_length=40)
 
 
 class CreatorAgentResearchRequest(BaseModel):
@@ -353,6 +358,65 @@ async def save_research(video_id: str, payload: ResearchUpdate) -> dict:
 async def delete_research(video_id: str) -> dict:
     deleted = snapshot_store.remove_saved_research(video_id)
     return {"videoId": video_id, "deleted": deleted}
+
+
+@app.post("/api/research/{video_id}/agent-idea", status_code=201)
+async def create_agent_idea_from_saved_research(
+    video_id: str,
+    payload: SavedResearchAgentIdeaRequest,
+) -> dict:
+    if not creator_agent_configured():
+        raise HTTPException(
+            status_code=503,
+            detail="Creator Agent is not configured. Add a key for the selected AI provider.",
+        )
+
+    content_type = payload.contentType.strip()
+    if content_type not in {"Short", "Long-form"}:
+        raise HTTPException(
+            status_code=422,
+            detail="Choose either Short or Long-form before generating the idea.",
+        )
+
+    saved = next(
+        (
+            item
+            for item in snapshot_store.list_saved_research()
+            if str(item.get("videoId") or item.get("id") or "") == video_id
+        ),
+        None,
+    )
+    if saved is None:
+        raise HTTPException(status_code=404, detail="Saved research item not found.")
+
+    try:
+        generated = await generate_idea_from_saved_research(
+            saved_research=saved,
+            content_type=content_type,
+        )
+    except CreatorAgentError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    idea = snapshot_store.create_idea(
+        title=str(generated.get("title") or saved.get("title") or "Creator idea").strip(),
+        source_video_id=video_id,
+        hook=str(generated.get("hook") or "").strip(),
+        topic=str(generated.get("topic") or saved.get("topic") or "").strip(),
+        content_type=content_type,
+        angle=str(generated.get("angle") or saved.get("angle") or "").strip(),
+        audience=str(generated.get("audience") or "").strip(),
+        hypothesis=str(generated.get("hypothesis") or "").strip(),
+        notes=str(generated.get("notes") or "").strip(),
+        priority="Med",
+        status="Draft",
+    )
+
+    return {
+        "idea": idea,
+        "contentType": content_type,
+        "provider": generated.get("_agentProvider") or creator_agent_provider(),
+        "model": generated.get("_agentModel") or creator_agent_model(),
+    }
 
 
 @app.get("/api/ideas")

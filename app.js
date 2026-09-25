@@ -509,6 +509,42 @@
     openIdeaModal(v);
   }
 
+  async function agentIdeaFromSaved(vid, contentType, button) {
+    if (!contentType) {
+      toast("Choose Short or Long-form first.");
+      return;
+    }
+    if (!["Short", "Long-form"].includes(contentType)) {
+      toast("Choose a valid content type.");
+      return;
+    }
+
+    const original = button ? button.textContent : "";
+    if (button) {
+      button.disabled = true;
+      button.textContent = "Agent working…";
+    }
+
+    try {
+      const result = await apiJson("/api/research/" + encodeURIComponent(vid) + "/agent-idea", {
+        method: "POST",
+        body: { contentType },
+      });
+      state.workflowLoaded = false;
+      await loadWorkflowData(true);
+      toast(contentType + " idea created by the agent");
+      navigate("/ideas");
+      return result;
+    } catch (error) {
+      toast(error?.message || "Creator Agent could not turn this research into an idea.");
+    } finally {
+      if (button) {
+        button.disabled = false;
+        button.textContent = original;
+      }
+    }
+  }
+
   function openIdeaModal(src) {
     const m = $("modal");
     const sourceNotes = src ? state.notes[src.id] || { why: "", adapt: "", angle: "" } : { why: "", adapt: "", angle: "" };
@@ -1425,9 +1461,19 @@
               <div class="meta"><b>Why:</b> ${esc(v.why || "Not written yet")}</div>
               <div class="meta" style="margin-top:4px"><b>Adapt:</b> ${esc(v.adapt || "Not written yet")}</div>
               <div class="meta" style="margin-top:4px"><b>Angle:</b> ${esc(v.angle || "Not written yet")}</div>
-              <div class="actions" style="margin-top:10px">
+              <div class="saved-agent-idea">
+                <label>Content type
+                  <select class="saved-agent-type" data-agent-type-for="${esc(v.videoId || v.id)}">
+                    <option value="">Choose type…</option>
+                    <option value="Short">Short</option>
+                    <option value="Long-form">Long-form</option>
+                  </select>
+                </label>
+                <button class="btn primary" data-act="agent-idea" data-id="${esc(v.videoId || v.id)}">Agent → Idea</button>
+              </div>
+              <div class="actions" style="margin-top:8px">
                 <button class="btn" data-act="analyze" data-id="${esc(v.videoId || v.id)}">Open research</button>
-                <button class="btn primary" data-act="idea" data-id="${esc(v.videoId || v.id)}">Turn into Idea</button>
+                <button class="btn" data-act="idea" data-id="${esc(v.videoId || v.id)}">Manual idea</button>
                 <button class="btn ghost" data-act="unsave" data-id="${esc(v.videoId || v.id)}">Remove</button>
               </div>
             </div>`).join("")}</div>`
@@ -1437,7 +1483,18 @@
               <td class="num">${v.opportunity == null ? "—" : v.opportunity + "/100"}</td>
               <td class="outlier">${v.outlier == null ? "—" : Number(v.outlier).toFixed(1) + "×"}</td>
               <td>${[v.why, v.adapt, v.angle].filter(Boolean).length}/3 prompts</td>
-              <td class="actions"><button class="btn primary" data-act="idea" data-id="${esc(v.videoId || v.id)}">Idea</button><button class="btn ghost" data-act="unsave" data-id="${esc(v.videoId || v.id)}">Remove</button></td>
+              <td>
+                <div class="saved-agent-table">
+                  <select class="saved-agent-type" data-agent-type-for="${esc(v.videoId || v.id)}" aria-label="Content type">
+                    <option value="">Type…</option>
+                    <option value="Short">Short</option>
+                    <option value="Long-form">Long-form</option>
+                  </select>
+                  <button class="btn primary" data-act="agent-idea" data-id="${esc(v.videoId || v.id)}">Agent → Idea</button>
+                  <button class="btn" data-act="idea" data-id="${esc(v.videoId || v.id)}">Manual</button>
+                  <button class="btn ghost" data-act="unsave" data-id="${esc(v.videoId || v.id)}">Remove</button>
+                </div>
+              </td>
             </tr>`).join("")}
           </tbody></table></div>`}
     `;
@@ -1854,6 +1911,10 @@
         if (b.dataset.act === "unsave") unsave(id);
         if (b.dataset.act === "analyze") navigate("/video/" + id);
         if (b.dataset.act === "idea") ideaFrom(id);
+        if (b.dataset.act === "agent-idea") {
+          const select = document.querySelector('[data-agent-type-for="' + CSS.escape(id) + '"]');
+          agentIdeaFromSaved(id, select ? select.value : "", b);
+        }
       };
     });
     document.querySelectorAll("[data-go]").forEach((b) => (b.onclick = () => navigate(b.dataset.go)));
