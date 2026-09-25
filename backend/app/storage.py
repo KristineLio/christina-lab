@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import re
+import secrets
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from statistics import median
@@ -176,6 +178,74 @@ class SnapshotStore:
 
     def init_schema(self) -> None:
         run_migrations(self._connect)
+
+    @staticmethod
+    def _workspace_key_hash(access_key: str) -> str:
+        return hashlib.sha256(str(access_key or "").encode("utf-8")).hexdigest()
+
+    def owner_workspace_claimed(self) -> bool:
+        with self._connect() as db:
+            row = db.execute(
+                """
+                SELECT access_key_hash
+                FROM workspace_access
+                WHERE workspace_id = 'owner'
+                """
+            ).fetchone()
+        return bool(row and str(row["access_key_hash"] or "").strip())
+
+    def claim_owner_workspace(self) -> str | None:
+        """Claim the migrated owner workspace once and return its recovery key."""
+
+        with self._connect() as db:
+            row = db.execute(
+                """
+                SELECT access_key_hash
+                FROM workspace_access
+                WHERE workspace_id = 'owner'
+                """
+            ).fetchone()
+            if row is None:
+                raise RuntimeError("Owner workspace access row is missing.")
+            if str(row["access_key_hash"] or "").strip():
+                return None
+
+            access_key = "clw_" + secrets.token_urlsafe(32)
+            db.execute(
+                """
+                UPDATE workspace_access
+                SET access_key_hash = ?, claimed_at = ?
+                WHERE workspace_id = 'owner'
+                """,
+                (self._workspace_key_hash(access_key), _iso(_utc_now())),
+            )
+            return access_key
+
+    def verify_owner_workspace_key(self, access_key: str) -> bool:
+        candidate = self._workspace_key_hash(access_key)
+        with self._connect() as db:
+            row = db.execute(
+                """
+                SELECT access_key_hash
+                FROM workspace_access
+                WHERE workspace_id = 'owner'
+                """
+            ).fetchone()
+        expected = str(row["access_key_hash"] or "").strip() if row else ""
+        return bool(expected) and secrets.compare_digest(candidate, expected)
+
+    def workspace_id_for_access_key(self, access_key: str) -> str:
+        """Map an opaque browser/invite key to a DB workspace ID.
+
+        The owner key resolves to the migrated owner workspace. Any other
+        well-formed private-alpha key gets a deterministic hashed workspace so
+        the raw invite secret is never stored with creator data.
+        """
+
+        if self.verify_owner_workspace_key(access_key):
+            return "owner"
+        digest = self._workspace_key_hash(access_key)
+        return "w_" + digest[:40]
 
     def record_snapshots(
         self,
