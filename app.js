@@ -527,6 +527,7 @@
   }
 
   function loadRouteData(path = state.route) {
+    if (!state.workspaceReady) return;
     const clean = String(path || "/").split("?")[0] || "/";
     if (clean === "/") loadDashboardData();
     if (clean === "/patterns" || clean === "/analytics") loadPatternsData();
@@ -2659,6 +2660,13 @@
   }
 
   function render() {
+    if (!state.workspaceReady) {
+      const message = state.workspaceError
+        ? '<div class="workspace-gate"><div class="eyebrow">PRIVATE ALPHA</div><h2>Workspace access required</h2><p>' + esc(state.workspaceError) + '</p><p class="meta">Open the owner recovery link or a private tester invite link. Workspace links are secrets: anyone with the link can access that workspace during the alpha.</p></div>'
+        : '<div class="workspace-gate"><div class="eyebrow">PRIVATE ALPHA</div><h2>Securing your workspace…</h2><p>Verifying private creator access before loading saved research, Ideas and Experiments.</p></div>';
+      $("app").innerHTML = message;
+      return;
+    }
     const path = state.route.split("?")[0] || "/";
     let title = "Dashboard";
     let body = "";
@@ -2907,6 +2915,25 @@
         toast(error?.message || "Could not save experiment result");
       }
     });
+    document.getElementById("createTesterInvite")?.addEventListener("click", async () => {
+      const accessKey = randomWorkspaceKey();
+      const link = workspaceLink(accessKey);
+      try {
+        await navigator.clipboard.writeText(link);
+        toast("Private tester link copied");
+      } catch (_) {
+        window.prompt("Copy this private tester link. Treat it like a password:", link);
+      }
+    });
+    document.getElementById("copyOwnerRecovery")?.addEventListener("click", async () => {
+      const link = workspaceLink(state.workspaceAccessKey);
+      try {
+        await navigator.clipboard.writeText(link);
+        toast("Owner recovery link copied");
+      } catch (_) {
+        window.prompt("Save this owner recovery link somewhere private:", link);
+      }
+    });
     document.getElementById("googleConnect")?.addEventListener("click", async () => {
       try {
         await ensureGoogleAccessToken();
@@ -2967,9 +2994,14 @@
   }
 
   render();
-  loadPublicConfig().then(() => {
-    const path = state.route.split("?")[0] || "/";
-    if (path === "/settings" || path === "/agent") render();
-  });
-  loadRouteData(state.route);
+  (async () => {
+    await loadPublicConfig();
+    await bootstrapWorkspace();
+    render();
+    if (state.workspaceReady) {
+      loadRouteData(state.route);
+      const path = state.route.split("?")[0] || "/";
+      if (path === "/settings" || path === "/agent" || path === "/trust") render();
+    }
+  })();
 })();
