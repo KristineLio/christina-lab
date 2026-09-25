@@ -436,6 +436,30 @@ PACKAGE_SCHEMA: dict[str, Any] = {
 }
 
 
+SAVED_RESEARCH_IDEA_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "title": {"type": "string"},
+        "hook": {"type": "string"},
+        "topic": {"type": "string"},
+        "angle": {"type": "string"},
+        "audience": {"type": "string"},
+        "hypothesis": {"type": "string"},
+        "notes": {"type": "string"},
+    },
+    "required": [
+        "title",
+        "hook",
+        "topic",
+        "angle",
+        "audience",
+        "hypothesis",
+        "notes",
+    ],
+}
+
+
 SHORT_MOMENTS_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
@@ -549,6 +573,63 @@ Rules:
 - Treat bold packaging as a hypothesis to test, not as permission to invent evidence. The title/thumbnail may create curiosity, but the body must earn the click with real proof.
 - Never fabricate screenshots, code, terminal results, test counts, recruiter reactions, hiring statistics, or product behavior.
 """
+
+
+async def generate_idea_from_saved_research(
+    *,
+    saved_research: dict[str, Any],
+    content_type: str,
+) -> dict[str, Any]:
+    normalized_type = "Short" if content_type == "Short" else "Long-form"
+    prompt = f"""SAVED RESEARCH VIDEO
+{json.dumps(saved_research, ensure_ascii=False)[:18000]}
+
+USER-CHOSEN CONTENT TYPE
+{normalized_type}
+
+Create ONE original Christina Lab idea from this saved research item.
+
+The content type above is a HARD CONSTRAINT. Do not change it or recommend a different format.
+
+Use the saved video's title, topic, public performance metadata, and especially the user's Why / Adapt / Angle notes as evidence. The reference video is inspiration for structure, positioning, packaging, or storytelling mechanics — never a script to copy.
+
+If content type is Short:
+- make the concept focused enough for one short-form video;
+- the hook should make sense immediately;
+- center one clear idea, proof beat, transformation, mistake, reveal, or takeaway;
+- do not turn it into a compressed long-form outline.
+
+If content type is Long-form:
+- give the idea enough narrative depth for a full video;
+- prefer a clear story arc such as problem -> decision -> process/proof -> result/lesson;
+- the hook and angle should support sustained curiosity, not just a one-line short.
+
+Rules:
+- Do not copy or closely paraphrase the source title or creator wording.
+- Do not invent facts about Christina, her projects, results, income, metrics, tests, or experience.
+- Treat the user's saved Adapt and Angle notes as strong intent signals.
+- If the saved notes are sparse, keep unsupported specifics out rather than guessing.
+- The idea should fit Christina Lab's From Code to Career direction where relevant.
+- notes should briefly explain how the saved research informed this idea and what still needs real proof/capture.
+"""
+
+    result, provider_attempt = await _structured_response(
+        instructions=SYSTEM_INSTRUCTIONS + """
+Saved Research -> Idea rules:
+- The user explicitly chooses Short or Long-form before generation. Obey that choice exactly.
+- Convert research into an original creator idea, not a remake of the reference video.
+- Preserve human intent from Why / Adapt / Angle notes.
+""",
+        prompt=prompt,
+        schema_name="creator_agent_saved_research_idea",
+        schema=SAVED_RESEARCH_IDEA_SCHEMA,
+        max_output_tokens=3000,
+    )
+    return {
+        **result,
+        "_agentProvider": provider_attempt.provider,
+        "_agentModel": provider_attempt.model,
+    }
 
 
 async def analyze_short_transcript(
