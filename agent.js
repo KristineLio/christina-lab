@@ -7,6 +7,18 @@
     research: null,
     seed: null,
     result: null,
+    shortSourceId: "",
+    shortTranscript: "",
+    shortPlatform: "YouTube Shorts",
+    shortDuration: 8,
+    shortAnalyzing: false,
+    shortGenerating: false,
+    shortMoments: [],
+    shortMomentId: "",
+    shortPackage: null,
+    shortReferenceName: "",
+    shortReferenceDataUrl: "",
+    shortError: "",
   };
 
   function esc(value) {
@@ -20,6 +32,28 @@
     if (n >= 1000000) return (n / 1000000).toFixed(1) + "M";
     if (n >= 1000) return (n / 1000).toFixed(n >= 10000 ? 0 : 1) + "K";
     return String(n);
+  }
+
+  function shortTime(value) {
+    const total = Math.max(0, Number(value || 0));
+    const minutes = Math.floor(total / 60);
+    const seconds = Math.floor(total % 60);
+    return minutes + ":" + String(seconds).padStart(2, "0");
+  }
+
+  function resetShortState(sourceId) {
+    state.shortSourceId = String(sourceId || "");
+    state.shortTranscript = "";
+    state.shortPlatform = "YouTube Shorts";
+    state.shortDuration = 8;
+    state.shortAnalyzing = false;
+    state.shortGenerating = false;
+    state.shortMoments = [];
+    state.shortMomentId = "";
+    state.shortPackage = null;
+    state.shortReferenceName = "";
+    state.shortReferenceDataUrl = "";
+    state.shortError = "";
   }
 
   function defaultSeed() {
@@ -104,12 +138,116 @@
           html += '</div><div><b>Study:</b> ' + esc(source.useFor || source.whyUseful) + '</div>';
           html += '<div class="meta"><b>Why:</b> ' + esc(source.whyUseful);
           if (source.caution) html += ' · <b>Caution:</b> ' + esc(source.caution);
+          html += '</div><div class="actions agent-source-actions">';
+          html += '<a class="btn ghost" href="' + esc(source.url) + '" target="_blank" rel="noopener">Open video</a>';
+          html += '<button class="btn" type="button" data-agent-short-source="' + esc(source.id) + '">Source → Short</button>';
           html += '</div></div>';
         });
       } else {
         html += '<div class="empty"><p>No strong reference source was selected. The agent can still work from repo and saved research evidence.</p></div>';
       }
       html += '</div>';
+
+
+      if (state.shortSourceId) {
+        const shortSource = sourceById[String(state.shortSourceId)];
+        if (shortSource) {
+          const selectedMoment = (state.shortMoments || []).find(function (moment) {
+            return String(moment.id) === String(state.shortMomentId);
+          });
+
+          html += '<div class="card agent-short-workspace" style="margin-top:12px;padding:14px">';
+          html += '<div class="card-h agent-short-head"><div><span class="badge strong">Source → Short</span>';
+          html += '<h2 style="margin:8px 0 4px">Turn one viral moment into an original AI short</h2>';
+          html += '<p>Source: <b>' + esc(shortSource.title) + '</b> · ' + esc(shortSource.channel) + '</p></div>';
+          html += '<button class="btn ghost" type="button" id="agentShortClose">Close</button></div>';
+
+          html += '<form class="form agent-short-form" id="agentShortAnalyzeForm">';
+          html += '<label>Timestamped transcript<textarea name="transcript" rows="9" required placeholder="Paste the video transcript with timestamps, e.g. 00:43 ...">' + esc(state.shortTranscript) + '</textarea></label>';
+          html += '<div class="grid2"><label>Target platform<select name="platform">';
+          ["YouTube Shorts", "TikTok", "Instagram Reels"].forEach(function (platform) {
+            html += '<option' + (state.shortPlatform === platform ? ' selected' : '') + '>' + esc(platform) + '</option>';
+          });
+          html += '</select></label><label>Generated video length<select name="duration">';
+          [6, 8, 10, 12, 15].forEach(function (duration) {
+            html += '<option value="' + duration + '"' + (Number(state.shortDuration) === duration ? ' selected' : '') + '>' + duration + ' seconds</option>';
+          });
+          html += '</select></label></div>';
+          html += '<p class="meta">Christina Lab studies the source structure and meaning, not the creator\'s wording. Timestamped transcripts let it point you to the exact frame to capture.</p>';
+          html += '<div class="actions"><button class="btn primary" type="submit"' + (state.shortAnalyzing ? ' disabled' : '') + '>' + (state.shortAnalyzing ? 'Finding moments…' : 'Find 3 strongest moments') + '</button></div>';
+          html += '</form>';
+
+          if (state.shortError) html += '<div class="meta agent-error">' + esc(state.shortError) + '</div>';
+
+          if (state.shortAnalyzing) {
+            html += '<div class="agent-short-loading"><div class="skel"></div><div class="skel"></div><p class="meta">Reading the transcript for reveals, open loops, mistakes, transformations and compact insights…</p></div>';
+          }
+
+          if ((state.shortMoments || []).length) {
+            html += '<div class="agent-short-moments"><div class="card-h"><h2>Choose the moment</h2><p>Each option points to the frame Christina Lab wants you to use as the visual reference.</p></div>';
+            html += '<div class="grid3">';
+            state.shortMoments.forEach(function (moment) {
+              const selected = String(moment.id) === String(state.shortMomentId);
+              html += '<button type="button" class="card agent-short-moment' + (selected ? ' selected' : '') + '" data-agent-short-moment="' + esc(moment.id) + '">';
+              html += '<span class="badge' + (selected ? ' strong' : '') + '">' + shortTime(moment.startSeconds) + '–' + shortTime(moment.endSeconds) + '</span>';
+              html += '<h3>' + esc(moment.label) + '</h3>';
+              html += '<p>' + esc(moment.sourceParaphrase) + '</p>';
+              html += '<div class="meta"><b>Mechanism:</b> ' + esc(moment.mechanism) + '</div>';
+              html += '<div class="meta" style="margin-top:6px"><b>Why:</b> ' + esc(moment.whyStrong) + '</div>';
+              html += '<div class="agent-frame-time">Reference frame: ' + shortTime(moment.frameTimeSeconds) + '</div>';
+              html += '</button>';
+            });
+            html += '</div></div>';
+          }
+
+          if (selectedMoment) {
+            html += '<div class="agent-short-reference">';
+            html += '<div><div class="card-h"><h2>Add the reference frame</h2><p>Take a screenshot from approximately <b>' + shortTime(selectedMoment.frameTimeSeconds) + '</b> in the source video.</p></div>';
+            html += '<p class="meta">' + esc(selectedMoment.shortDirection) + '</p>';
+            html += '<label class="btn agent-frame-upload">Choose reference image<input id="agentShortReference" type="file" accept="image/png,image/jpeg,image/webp" hidden /></label>';
+            if (state.shortReferenceName) html += '<span class="meta" style="margin-left:8px">' + esc(state.shortReferenceName) + '</span>';
+            html += '</div>';
+            html += '<div class="agent-short-preview">';
+            if (state.shortReferenceDataUrl) {
+              html += '<img src="' + esc(state.shortReferenceDataUrl) + '" alt="Reference frame preview" />';
+            } else {
+              html += '<div class="agent-short-preview-empty">Reference frame<br>' + shortTime(selectedMoment.frameTimeSeconds) + '</div>';
+            }
+            html += '</div></div>';
+            html += '<div class="actions" style="margin-top:12px"><button class="btn primary" type="button" id="agentShortGenerate"' + (state.shortGenerating ? ' disabled' : '') + '>' + (state.shortGenerating ? 'Building shorts…' : 'Generate AI Studio packages') + '</button></div>';
+          }
+
+          if (state.shortGenerating) {
+            html += '<div class="agent-short-loading"><div class="skel"></div><div class="skel"></div><p class="meta">Writing three original short scripts, shot plans and paste-ready AI Studio prompts…</p></div>';
+          }
+
+          if (state.shortPackage && (state.shortPackage.variants || []).length) {
+            html += '<div class="agent-short-results"><div class="card-h"><h2>AI Studio-ready packages</h2><p>Use the reference image above together with one prompt below.</p></div>';
+            html += '<div class="grid3">';
+            (state.shortPackage.variants || []).forEach(function (variant, index) {
+              html += '<div class="card agent-short-variant">';
+              html += '<span class="badge strong">' + esc(variant.name || ('Variant ' + (index + 1))) + '</span>';
+              html += '<h3>' + esc(variant.hook) + '</h3>';
+              html += '<div class="meta"><b>Voiceover</b></div><p>' + esc(variant.voiceover) + '</p>';
+              html += '<div class="meta"><b>On-screen text</b></div><div class="hook">' + esc(variant.onScreenText) + '</div>';
+              html += '<div class="meta" style="margin-top:8px"><b>Shot plan</b></div>';
+              html += '<ol class="agent-shot-list">';
+              (variant.shotPlan || []).forEach(function (shot) {
+                html += '<li><b>' + Number(shot.start || 0).toFixed(1) + '–' + Number(shot.end || 0).toFixed(1) + 's</b> · ' + esc(shot.visual) + ' — ' + esc(shot.action) + '</li>';
+              });
+              html += '</ol>';
+              html += '<div class="actions"><button class="btn primary" type="button" data-agent-short-copy="' + index + '">Copy AI Studio prompt</button>';
+              html += '<button class="btn" type="button" data-agent-short-copy-script="' + index + '">Copy script</button></div>';
+              html += '</div>';
+            });
+            html += '</div>';
+            html += '<p class="meta" style="margin-top:10px">Generated with ' + esc(state.shortPackage.provider || provider) + (state.shortPackage.model ? ' · ' + esc(state.shortPackage.model) : '') + '. The prompt treats the image as visual reference, not permission to clone the source creator.</p>';
+            html += '</div>';
+          }
+
+          html += '</div>';
+        }
+      }
 
       html += '<div style="margin-top:12px"><div class="card-h"><h2>3 · Choose the direction</h2><p>Nothing becomes the production package until you choose.</p></div>';
       html += '<div class="grid3 agent-angle-grid">';
@@ -215,8 +353,166 @@
       state.research = null;
       state.result = null;
       state.error = "";
+      resetShortState("");
       rerender();
     };
+
+    document.querySelectorAll("[data-agent-short-source]").forEach(function (button) {
+      button.onclick = function () {
+        resetShortState(button.dataset.agentShortSource);
+        rerender();
+      };
+    });
+
+    const shortClose = document.getElementById("agentShortClose");
+    if (shortClose) shortClose.onclick = function () {
+      resetShortState("");
+      rerender();
+    };
+
+    const shortForm = document.getElementById("agentShortAnalyzeForm");
+    if (shortForm) {
+      shortForm.onsubmit = async function (event) {
+        event.preventDefault();
+        if (!state.research || !state.shortSourceId) return;
+        const source = (state.research.sourceMaterials || []).find(function (item) {
+          return String(item.id) === String(state.shortSourceId);
+        });
+        if (!source) return;
+
+        const data = new FormData(shortForm);
+        state.shortTranscript = String(data.get("transcript") || "").trim();
+        state.shortPlatform = String(data.get("platform") || "YouTube Shorts");
+        state.shortDuration = Number(data.get("duration") || 8);
+        state.shortAnalyzing = true;
+        state.shortError = "";
+        state.shortMoments = [];
+        state.shortMomentId = "";
+        state.shortPackage = null;
+        state.shortReferenceName = "";
+        state.shortReferenceDataUrl = "";
+        rerender();
+
+        try {
+          const response = await apiJson(apiBase, "/api/agent/shorts/analyze", {
+            method: "POST",
+            body: {
+              source: source,
+              transcript: state.shortTranscript,
+              platform: state.shortPlatform,
+            },
+          });
+          state.shortMoments = response.moments || [];
+          state.shortMomentId = state.shortMoments[0] ? String(state.shortMoments[0].id) : "";
+          if (!state.shortMoments.length) state.shortError = "No usable short moments were found in that transcript.";
+        } catch (error) {
+          state.shortError = error && error.message || "Christina Lab could not analyze that transcript.";
+        } finally {
+          state.shortAnalyzing = false;
+          rerender();
+        }
+      };
+    }
+
+    document.querySelectorAll("[data-agent-short-moment]").forEach(function (button) {
+      button.onclick = function () {
+        state.shortMomentId = String(button.dataset.agentShortMoment || "");
+        state.shortPackage = null;
+        state.shortReferenceName = "";
+        state.shortReferenceDataUrl = "";
+        state.shortError = "";
+        rerender();
+      };
+    });
+
+    const referenceInput = document.getElementById("agentShortReference");
+    if (referenceInput) {
+      referenceInput.onchange = function () {
+        const file = referenceInput.files && referenceInput.files[0];
+        if (!file) return;
+        if (!/^image\/(png|jpeg|webp)$/i.test(file.type || "")) {
+          state.shortError = "Use a PNG, JPG or WebP reference frame.";
+          rerender();
+          return;
+        }
+        const reader = new FileReader();
+        reader.onload = function () {
+          state.shortReferenceName = file.name || "reference-frame";
+          state.shortReferenceDataUrl = String(reader.result || "");
+          state.shortError = "";
+          rerender();
+        };
+        reader.onerror = function () {
+          state.shortError = "Could not read that reference image.";
+          rerender();
+        };
+        reader.readAsDataURL(file);
+      };
+    }
+
+    const shortGenerate = document.getElementById("agentShortGenerate");
+    if (shortGenerate) {
+      shortGenerate.onclick = async function () {
+        if (!state.research || !state.shortSourceId || !state.shortMomentId) return;
+        const source = (state.research.sourceMaterials || []).find(function (item) {
+          return String(item.id) === String(state.shortSourceId);
+        });
+        const moment = (state.shortMoments || []).find(function (item) {
+          return String(item.id) === String(state.shortMomentId);
+        });
+        if (!source || !moment) return;
+
+        state.shortGenerating = true;
+        state.shortError = "";
+        state.shortPackage = null;
+        rerender();
+        try {
+          state.shortPackage = await apiJson(apiBase, "/api/agent/shorts/generate", {
+            method: "POST",
+            body: {
+              source: source,
+              transcript: state.shortTranscript,
+              moment: moment,
+              platform: state.shortPlatform,
+              durationSeconds: Number(state.shortDuration || 8),
+              hasReferenceFrame: Boolean(state.shortReferenceDataUrl),
+            },
+          });
+        } catch (error) {
+          state.shortError = error && error.message || "Christina Lab could not build the short package.";
+        } finally {
+          state.shortGenerating = false;
+          rerender();
+        }
+      };
+    }
+
+    document.querySelectorAll("[data-agent-short-copy]").forEach(function (button) {
+      button.onclick = async function () {
+        const variant = state.shortPackage && (state.shortPackage.variants || [])[Number(button.dataset.agentShortCopy)];
+        if (!variant) return;
+        try {
+          await navigator.clipboard.writeText(String(variant.aiStudioPrompt || ""));
+          toast("AI Studio prompt copied");
+        } catch (_) {
+          toast("Could not copy the prompt");
+        }
+      };
+    });
+
+    document.querySelectorAll("[data-agent-short-copy-script]").forEach(function (button) {
+      button.onclick = async function () {
+        const variant = state.shortPackage && (state.shortPackage.variants || [])[Number(button.dataset.agentShortCopyScript)];
+        if (!variant) return;
+        const script = [variant.hook, variant.voiceover, variant.onScreenText].filter(Boolean).join("\n\n");
+        try {
+          await navigator.clipboard.writeText(script);
+          toast("Short script copied");
+        } catch (_) {
+          toast("Could not copy the script");
+        }
+      };
+    });
 
     document.querySelectorAll("[data-agent-angle]").forEach(function (button) {
       button.onclick = async function () {
