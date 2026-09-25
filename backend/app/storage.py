@@ -996,14 +996,16 @@ class SnapshotStore:
             LEFT JOIN video_snapshots s ON s.id = (
                 SELECT s2.id
                 FROM video_snapshots s2
-                WHERE s2.video_id = r.video_id
+                WHERE s2.workspace_id = r.workspace_id
+                  AND s2.video_id = r.video_id
                 ORDER BY s2.observed_at DESC
                 LIMIT 1
             )
             LEFT JOIN video_analyses a ON a.id = (
                 SELECT a2.id
                 FROM video_analyses a2
-                WHERE a2.video_id = r.video_id
+                WHERE a2.workspace_id = r.workspace_id
+                  AND a2.video_id = r.video_id
                 ORDER BY a2.id DESC
                 LIMIT 1
             )
@@ -1768,10 +1770,28 @@ class SnapshotStore:
             "learningSignals": learning_signals,
         }
 
-    def stats(self) -> dict:
+    def stats(self, *, workspace_id: str = "owner") -> dict:
         with self._connect() as db:
-            video_count = int(db.execute("SELECT COUNT(*) FROM videos").fetchone()[0])
-            snapshot_count = int(db.execute("SELECT COUNT(*) FROM video_snapshots").fetchone()[0])
+            video_count = int(
+                db.execute(
+                    """
+                    SELECT COUNT(DISTINCT video_id)
+                    FROM video_snapshots
+                    WHERE workspace_id = ?
+                    """,
+                    (workspace_id,),
+                ).fetchone()[0]
+            )
+            snapshot_count = int(
+                db.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM video_snapshots
+                    WHERE workspace_id = ?
+                    """,
+                    (workspace_id,),
+                ).fetchone()[0]
+            )
             multi_snapshot_videos = int(
                 db.execute(
                     """
@@ -1779,10 +1799,12 @@ class SnapshotStore:
                     FROM (
                         SELECT video_id
                         FROM video_snapshots
+                        WHERE workspace_id = ?
                         GROUP BY video_id
                         HAVING COUNT(*) >= 2
                     )
-                    """
+                    """,
+                    (workspace_id,),
                 ).fetchone()[0]
             )
 
