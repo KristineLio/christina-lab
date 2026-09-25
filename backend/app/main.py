@@ -226,23 +226,21 @@ IDEA_DOCUMENT_EXTENSIONS = {".docx", ".pdf", ".md", ".txt", ".png", ".jpg", ".jp
 IDEA_DOCUMENT_MAX_BYTES = 5 * 1024 * 1024
 
 
-WORKSPACE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{12,128}$")
+WORKSPACE_ACCESS_KEY_PATTERN = re.compile(r"^clw_[A-Za-z0-9_-]{24,100}$")
 
 
 def _workspace_id(raw: str | None) -> str:
-    """Resolve the creator workspace for private-alpha workflow data.
-
-    The existing owner workspace stays addressable without a header so the
-    current deployment preserves Christina's data. Tester invite links send an
-    opaque workspace ID in X-Christina-Workspace.
-    """
+    """Resolve an opaque alpha access key to an isolated creator workspace."""
 
     value = str(raw or "").strip()
     if not value:
-        return "owner"
-    if not WORKSPACE_ID_PATTERN.fullmatch(value):
+        raise HTTPException(
+            status_code=401,
+            detail="Private alpha workspace key required. Open Christina Lab from your owner or tester link.",
+        )
+    if not WORKSPACE_ACCESS_KEY_PATTERN.fullmatch(value):
         raise HTTPException(status_code=400, detail="Invalid workspace key.")
-    return value
+    return snapshot_store.workspace_id_for_access_key(value)
 
 
 def _model_changes(model: BaseModel) -> dict:
@@ -255,6 +253,35 @@ def _validate_choice(value: str | None, allowed: set[str], label: str) -> None:
             status_code=422,
             detail=f"{label} must be one of: {', '.join(sorted(allowed))}",
         )
+
+
+@app.post("/api/workspace/claim-owner")
+async def claim_owner_workspace() -> dict:
+    access_key = snapshot_store.claim_owner_workspace()
+    if access_key is None:
+        raise HTTPException(
+            status_code=409,
+            detail="The owner workspace has already been claimed. Use the saved owner recovery link.",
+        )
+    return {
+        "accessKey": access_key,
+        "workspaceType": "owner",
+        "message": "Owner workspace claimed. Save the recovery link shown in Christina Lab.",
+    }
+
+
+@app.get("/api/workspace/status")
+async def workspace_status(
+    x_christina_workspace: str | None = Header(default=None, alias="X-Christina-Workspace"),
+) -> dict:
+    access_key = str(x_christina_workspace or "").strip()
+    workspace_id = _workspace_id(access_key)
+    return {
+        "workspaceType": "owner" if workspace_id == "owner" else "tester",
+        "workspaceId": workspace_id,
+        "isOwner": workspace_id == "owner",
+        "isPrivateAlpha": True,
+    }
 
 
 @app.get("/api/health")
