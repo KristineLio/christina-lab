@@ -4,6 +4,7 @@ import base64
 import json
 import binascii
 import os
+import re
 import secrets
 from pathlib import Path
 from urllib.parse import quote
@@ -21,6 +22,7 @@ from .creator_agent import (
     creator_agent_provider,
     analyze_short_transcript,
     generate_idea_from_saved_research,
+    generate_idea_production_docs,
     generate_package,
     generate_short_package,
     load_github_repo_context,
@@ -113,6 +115,10 @@ class IdeaDocumentCloudUpdate(BaseModel):
 
 class SavedResearchAgentIdeaRequest(BaseModel):
     contentType: str = Field(min_length=1, max_length=40)
+
+
+class IdeaAgentProductionDocsRequest(BaseModel):
+    platform: str = Field(min_length=1, max_length=40)
 
 
 class CreatorAgentResearchRequest(BaseModel):
@@ -212,7 +218,7 @@ IDEA_STATUSES = {"Draft", "Ready", "Published"}
 EXPERIMENT_STATUSES = {"Draft", "Ready", "Published"}
 EXPERIMENT_DECISIONS = {"UNDECIDED", "GO", "TEST", "HOLD"}
 PRIORITIES = {"High", "Med", "Low"}
-IDEA_DOCUMENT_KINDS = {"script", "plan", "reference", "other"}
+IDEA_DOCUMENT_KINDS = {"script", "plan", "reference", "video_prompt", "photo_reference", "other"}
 IDEA_DOCUMENT_EXTENSIONS = {".docx", ".pdf", ".md", ".txt"}
 IDEA_DOCUMENT_MAX_BYTES = 5 * 1024 * 1024
 
@@ -463,6 +469,89 @@ async def update_idea(idea_id: int, payload: IdeaUpdate) -> dict:
     if item is None:
         raise HTTPException(status_code=404, detail="Idea not found.")
     return item
+
+
+@app.post("/api/ideas/{idea_id}/agent-documents", status_code=201)
+async def generate_agent_documents_for_idea(
+    idea_id: int,
+    payload: IdeaAgentProductionDocsRequest,
+) -> dict:
+    if not creator_agent_configured():
+        raise HTTPException(
+            status_code=503,
+            detail="Creator Agent is not configured. Add a key for the selected AI provider.",
+        )
+
+    platform = payload.platform.strip()
+    allowed_platforms = {
+        "YouTube Shorts",
+        "TikTok",
+        "Pinterest",
+        "Instagram",
+    }
+    if platform not in allowed_platforms:
+        raise HTTPException(
+            status_code=422,
+            detail="Choose YouTube Shorts, TikTok, Pinterest, or Instagram.",
+        )
+
+    idea = snapshot_store.get_idea(idea_id)
+    if idea is None:
+        raise HTTPException(status_code=404, detail="Idea not found.")
+
+    source_research = None
+    source_video_id = str(idea.get("sourceVideoId") or "").strip()
+    if source_video_id:
+        source_research = next(
+            (
+                item
+                for item in snapshot_store.list_saved_research()
+                if str(item.get("videoId") or item.get("id") or "") == source_video_id
+            ),
+            None,
+        )
+
+    try:
+        generated = await generate_idea_production_docs(
+            idea=idea,
+            source_research=source_research,
+            platform=platform,
+        )
+    except CreatorAgentError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    safe_platform = "-".join(
+        part for part in re.sub(r"[^a-z0-9]+", "-", platform.lower()).split("-") if part
+    ) or "platform"
+
+    documents = []
+    for kind, suffix, body in (
+        ("script", "script", generated.get("script", "")),
+        ("plan", "production-plan", generated.get("productionPlan", "")),
+        ("video_prompt", "video-prompt", generated.get("videoPrompt", "")),
+        ("photo_reference", "photo-reference", generated.get("photoReference", "")),
+    ):
+        text_body = str(body or "").strip()
+        if not text_body:
+            continue
+        documents.append(
+            snapshot_store.save_idea_document(
+                idea_id,
+                kind=kind,
+                filename=f"idea-{idea_id}-{safe_platform}-{suffix}.md",
+                content_type="text/markdown; charset=utf-8",
+                content=(text_body + "\n").encode("utf-8"),
+            )
+        )
+
+    return {
+        "ideaId": idea_id,
+        "contentType": str(idea.get("type") or "Long-form"),
+        "platform": platform,
+        "documents": documents,
+        "provider": generated.get("_agentProvider") or creator_agent_provider(),
+        "model": generated.get("_agentModel") or creator_agent_model(),
+    }
 
 
 @app.get("/api/ideas/{idea_id}/documents")
