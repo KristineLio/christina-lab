@@ -341,6 +341,18 @@
       return state.googleAccessToken;
     }
 
+    try {
+      if (localStorage.getItem(GOOGLE_DISCLOSURE_KEY) !== "accepted") {
+        const accepted = window.confirm(
+          "Connect Google Drive?\n\nChristina Lab requests Google\'s drive.file permission. This lets it create and work with files created through Christina Lab; it does not grant access to your entire Drive.\n\nThe Google access token stays in this browser session and is not stored in Christina Lab\'s database.\n\nContinue?"
+        );
+        if (!accepted) throw new Error("Google Drive connection cancelled.");
+        localStorage.setItem(GOOGLE_DISCLOSURE_KEY, "accepted");
+      }
+    } catch (error) {
+      if (error?.message) throw error;
+    }
+
     if (!window.google?.accounts?.oauth2) {
       throw new Error("Google sign-in is still loading. Wait a moment and try again.");
     }
@@ -384,7 +396,10 @@
     }
 
     const token = await ensureGoogleAccessToken();
-    const sourceResponse = await fetch(API_BASE + "/api/idea-documents/" + encodeURIComponent(doc.id));
+    const sourceResponse = await fetch(
+      API_BASE + "/api/idea-documents/" + encodeURIComponent(doc.id),
+      { headers: workspaceHeaders() }
+    );
     if (!sourceResponse.ok) {
       throw new Error("Could not read the Christina Lab document.");
     }
@@ -742,11 +757,31 @@
   }
 
   async function copyIdeaDocumentText(documentId, label) {
-    const response = await fetch(API_BASE + "/api/idea-documents/" + encodeURIComponent(documentId));
+    const response = await fetch(
+      API_BASE + "/api/idea-documents/" + encodeURIComponent(documentId),
+      { headers: workspaceHeaders() }
+    );
     if (!response.ok) throw new Error("Could not load document text.");
     const text = await response.text();
     await navigator.clipboard.writeText(text);
     toast((label || "Document") + " copied");
+  }
+
+  async function downloadIdeaDocument(doc) {
+    const response = await fetch(
+      API_BASE + "/api/idea-documents/" + encodeURIComponent(doc.id),
+      { headers: workspaceHeaders() }
+    );
+    if (!response.ok) throw new Error("Could not download this document.");
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = String(doc.filename || "christina-lab-document");
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
   }
 
   function ideaProductionPlatform(doc, ideaId) {
@@ -948,7 +983,7 @@
             <summary>More</summary>
             <div class="production-more-menu">
               <div class="production-file-name">${esc(doc.filename)}</div>
-              <a class="btn ghost" href="${API_BASE}/api/idea-documents/${doc.id}">Download file</a>
+              <button class="btn ghost" type="button" data-download-doc="${doc.id}">Download file</button>
               ${doc.cloudUrl && canConvertToGoogleDocs(doc) ? `<button class="btn ghost" type="button" data-google-doc="${doc.id}">Create new Google Doc</button>` : ""}
               <button class="btn danger" type="button" data-delete-doc="${doc.id}">Delete</button>
             </div>
@@ -1068,7 +1103,7 @@
                   ? `<a class="btn primary" href="${esc(doc.cloudUrl)}" target="_blank" rel="noopener">Open Google Doc ✓</a>`
                   : `<button class="btn" type="button" data-google-doc="${doc.id}">Create Google Doc</button>`
                 : ""}
-              <a class="btn ghost" href="${API_BASE}/api/idea-documents/${doc.id}">Download</a>
+              <button class="btn ghost" type="button" data-download-doc="${doc.id}">Download</button>
               <button class="btn ghost" type="button" data-delete-doc="${doc.id}">Delete</button>
             </div>
           </div>`).join("")}
@@ -1133,7 +1168,10 @@
         preview.innerHTML = '<div class="production-preview-loading"><div class="skel"></div><div class="skel"></div></div>';
         preview.scrollIntoView({ behavior: "smooth", block: "start" });
         try {
-          const response = await fetch(API_BASE + "/api/idea-documents/" + encodeURIComponent(doc.id));
+          const response = await fetch(
+            API_BASE + "/api/idea-documents/" + encodeURIComponent(doc.id),
+            { headers: workspaceHeaders() }
+          );
           if (!response.ok) throw new Error("Could not load this document.");
           const raw = await response.text();
           preview.innerHTML = `<div class="production-preview-head">
@@ -1244,6 +1282,21 @@
           toast(error?.message || "Could not create Google Doc");
           button.disabled = false;
           button.textContent = original;
+        }
+      };
+    });
+
+    document.querySelectorAll("[data-download-doc]").forEach((button) => {
+      button.onclick = async () => {
+        const doc = documents.find((item) => String(item.id) === String(button.dataset.downloadDoc));
+        if (!doc) return;
+        button.disabled = true;
+        try {
+          await downloadIdeaDocument(doc);
+        } catch (error) {
+          toast(error?.message || "Could not download document");
+        } finally {
+          button.disabled = false;
         }
       };
     });
