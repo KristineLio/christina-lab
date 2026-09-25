@@ -1225,11 +1225,12 @@ class SnapshotStore:
         filename: str,
         content_type: str,
         content: bytes,
+        workspace_id: str = "owner",
     ) -> dict:
         now = _iso(_utc_now())
         payload = bytes(content)
         with self._connect() as db:
-            if self._idea_row(db, idea_id) is None:
+            if self._idea_row(db, idea_id, workspace_id) is None:
                 raise ValueError("Idea not found.")
             cursor = db.execute(
                 """
@@ -1254,9 +1255,14 @@ class SnapshotStore:
             ).fetchone()
             return self._serialize_idea_document(row)
 
-    def list_idea_documents(self, idea_id: int) -> list[dict]:
+    def list_idea_documents(
+        self,
+        idea_id: int,
+        *,
+        workspace_id: str = "owner",
+    ) -> list[dict]:
         with self._connect() as db:
-            if self._idea_row(db, idea_id) is None:
+            if self._idea_row(db, idea_id, workspace_id) is None:
                 raise ValueError("Idea not found.")
             rows = db.execute(
                 """
@@ -1271,11 +1277,21 @@ class SnapshotStore:
             ).fetchall()
         return [self._serialize_idea_document(row) for row in rows]
 
-    def get_idea_document(self, document_id: int) -> dict | None:
+    def get_idea_document(
+        self,
+        document_id: int,
+        *,
+        workspace_id: str = "owner",
+    ) -> dict | None:
         with self._connect() as db:
             row = db.execute(
-                "SELECT * FROM idea_documents WHERE id = ?",
-                (document_id,),
+                """
+                SELECT d.*
+                FROM idea_documents d
+                JOIN ideas i ON i.id = d.idea_id
+                WHERE d.id = ? AND i.workspace_id = ?
+                """,
+                (document_id, workspace_id),
             ).fetchone()
         return self._serialize_idea_document(row, include_content=True) if row else None
 
@@ -1286,9 +1302,21 @@ class SnapshotStore:
         provider: str,
         file_id: str,
         url: str,
+        workspace_id: str = "owner",
     ) -> dict | None:
         uploaded_at = _iso(_utc_now())
         with self._connect() as db:
+            owned = db.execute(
+                """
+                SELECT d.id
+                FROM idea_documents d
+                JOIN ideas i ON i.id = d.idea_id
+                WHERE d.id = ? AND i.workspace_id = ?
+                """,
+                (document_id, workspace_id),
+            ).fetchone()
+            if owned is None:
+                return None
             cursor = db.execute(
                 """
                 UPDATE idea_documents
@@ -1308,8 +1336,24 @@ class SnapshotStore:
             ).fetchone()
             return self._serialize_idea_document(row)
 
-    def delete_idea_document(self, document_id: int) -> bool:
+    def delete_idea_document(
+        self,
+        document_id: int,
+        *,
+        workspace_id: str = "owner",
+    ) -> bool:
         with self._connect() as db:
+            owned = db.execute(
+                """
+                SELECT d.id
+                FROM idea_documents d
+                JOIN ideas i ON i.id = d.idea_id
+                WHERE d.id = ? AND i.workspace_id = ?
+                """,
+                (document_id, workspace_id),
+            ).fetchone()
+            if owned is None:
+                return False
             cursor = db.execute(
                 "DELETE FROM idea_documents WHERE id = ?",
                 (document_id,),
@@ -1348,10 +1392,14 @@ class SnapshotStore:
         hypothesis: str | None = None,
         status: str | None = None,
         decision: str = "UNDECIDED",
+        workspace_id: str = "owner",
     ) -> dict:
         now = _iso(_utc_now())
         with self._connect() as db:
-            idea = db.execute("SELECT * FROM ideas WHERE id = ?", (idea_id,)).fetchone()
+            idea = db.execute(
+                "SELECT * FROM ideas WHERE id = ? AND workspace_id = ?",
+                (idea_id, workspace_id),
+            ).fetchone()
             if idea is None:
                 raise ValueError("Idea not found.")
 
@@ -1385,22 +1433,45 @@ class SnapshotStore:
             ).fetchone()
             return self._serialize_experiment(row)
 
-    def list_experiments(self) -> list[dict]:
+    def list_experiments(self, *, workspace_id: str = "owner") -> list[dict]:
         with self._connect() as db:
             rows = db.execute(
-                "SELECT * FROM experiments ORDER BY updated_at DESC, id DESC"
+                """
+                SELECT e.*
+                FROM experiments e
+                JOIN ideas i ON i.id = e.idea_id
+                WHERE i.workspace_id = ?
+                ORDER BY e.updated_at DESC, e.id DESC
+                """,
+                (workspace_id,),
             ).fetchall()
         return [self._serialize_experiment(row) for row in rows]
 
-    def get_experiment(self, experiment_id: int) -> dict | None:
+    def get_experiment(
+        self,
+        experiment_id: int,
+        *,
+        workspace_id: str = "owner",
+    ) -> dict | None:
         with self._connect() as db:
             row = db.execute(
-                "SELECT * FROM experiments WHERE id = ?",
-                (experiment_id,),
+                """
+                SELECT e.*
+                FROM experiments e
+                JOIN ideas i ON i.id = e.idea_id
+                WHERE e.id = ? AND i.workspace_id = ?
+                """,
+                (experiment_id, workspace_id),
             ).fetchone()
         return self._serialize_experiment(row) if row else None
 
-    def update_experiment(self, experiment_id: int, changes: dict) -> dict | None:
+    def update_experiment(
+        self,
+        experiment_id: int,
+        changes: dict,
+        *,
+        workspace_id: str = "owner",
+    ) -> dict | None:
         allowed = {
             "name": "name",
             "topic": "topic",
@@ -1426,13 +1497,24 @@ class SnapshotStore:
                 values.append(changes[key])
 
         if not updates:
-            return self.get_experiment(experiment_id)
+            return self.get_experiment(experiment_id, workspace_id=workspace_id)
 
         updates.append("updated_at = ?")
         values.append(_iso(_utc_now()))
         values.append(experiment_id)
 
         with self._connect() as db:
+            owned = db.execute(
+                """
+                SELECT e.id
+                FROM experiments e
+                JOIN ideas i ON i.id = e.idea_id
+                WHERE e.id = ? AND i.workspace_id = ?
+                """,
+                (experiment_id, workspace_id),
+            ).fetchone()
+            if owned is None:
+                return None
             cursor = db.execute(
                 f"UPDATE experiments SET {', '.join(updates)} WHERE id = ?",
                 values,
@@ -1455,18 +1537,34 @@ class SnapshotStore:
                 )
             return self._serialize_experiment(row)
 
-    def delete_experiment(self, experiment_id: int) -> bool:
+    def delete_experiment(
+        self,
+        experiment_id: int,
+        *,
+        workspace_id: str = "owner",
+    ) -> bool:
         with self._connect() as db:
+            owned = db.execute(
+                """
+                SELECT e.id
+                FROM experiments e
+                JOIN ideas i ON i.id = e.idea_id
+                WHERE e.id = ? AND i.workspace_id = ?
+                """,
+                (experiment_id, workspace_id),
+            ).fetchone()
+            if owned is None:
+                return False
             cursor = db.execute(
                 "DELETE FROM experiments WHERE id = ?",
                 (experiment_id,),
             )
             return cursor.rowcount > 0
 
-    def workflow_summary(self) -> dict:
-        saved = self.list_saved_research()
-        ideas = self.list_ideas()
-        experiments = self.list_experiments()
+    def workflow_summary(self, *, workspace_id: str = "owner") -> dict:
+        saved = self.list_saved_research(workspace_id=workspace_id)
+        ideas = self.list_ideas(workspace_id=workspace_id)
+        experiments = self.list_experiments(workspace_id=workspace_id)
 
         decision_counts = {"GO": 0, "TEST": 0, "HOLD": 0, "UNDECIDED": 0}
         for experiment in experiments:
