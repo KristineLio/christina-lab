@@ -414,6 +414,7 @@ async def delete_research(
 async def create_agent_idea_from_saved_research(
     video_id: str,
     payload: SavedResearchAgentIdeaRequest,
+    x_christina_workspace: str | None = Header(default=None, alias="X-Christina-Workspace"),
 ) -> dict:
     if not creator_agent_configured():
         raise HTTPException(
@@ -428,10 +429,11 @@ async def create_agent_idea_from_saved_research(
             detail="Choose either Short or Long-form before generating the idea.",
         )
 
+    workspace_id = _workspace_id(x_christina_workspace)
     saved = next(
         (
             item
-            for item in snapshot_store.list_saved_research()
+            for item in snapshot_store.list_saved_research(workspace_id=workspace_id)
             if str(item.get("videoId") or item.get("id") or "") == video_id
         ),
         None,
@@ -459,6 +461,7 @@ async def create_agent_idea_from_saved_research(
         notes=str(generated.get("notes") or "").strip(),
         priority="Med",
         status="Draft",
+        workspace_id=workspace_id,
     )
 
     return {
@@ -470,19 +473,30 @@ async def create_agent_idea_from_saved_research(
 
 
 @app.get("/api/ideas")
-async def ideas() -> dict:
-    items = snapshot_store.list_ideas()
+async def ideas(
+    x_christina_workspace: str | None = Header(default=None, alias="X-Christina-Workspace"),
+) -> dict:
+    items = snapshot_store.list_ideas(
+        workspace_id=_workspace_id(x_christina_workspace)
+    )
     return {"count": len(items), "items": items}
 
 
 @app.post("/api/ideas", status_code=201)
-async def create_idea(payload: IdeaCreate) -> dict:
+async def create_idea(
+    payload: IdeaCreate,
+    x_christina_workspace: str | None = Header(default=None, alias="X-Christina-Workspace"),
+) -> dict:
+    workspace_id = _workspace_id(x_christina_workspace)
     _validate_choice(payload.status, IDEA_STATUSES, "Idea status")
     _validate_choice(payload.priority, PRIORITIES, "Priority")
 
     if payload.sourceVideoId:
         try:
-            snapshot_store.save_research(payload.sourceVideoId)
+            snapshot_store.save_research(
+                payload.sourceVideoId,
+                workspace_id=workspace_id,
+            )
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -499,17 +513,26 @@ async def create_idea(payload: IdeaCreate) -> dict:
             notes=payload.notes,
             priority=payload.priority,
             status=payload.status,
+            workspace_id=workspace_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.patch("/api/ideas/{idea_id}")
-async def update_idea(idea_id: int, payload: IdeaUpdate) -> dict:
+async def update_idea(
+    idea_id: int,
+    payload: IdeaUpdate,
+    x_christina_workspace: str | None = Header(default=None, alias="X-Christina-Workspace"),
+) -> dict:
     changes = _model_changes(payload)
     _validate_choice(changes.get("status"), IDEA_STATUSES, "Idea status")
     _validate_choice(changes.get("priority"), PRIORITIES, "Priority")
-    item = snapshot_store.update_idea(idea_id, changes)
+    item = snapshot_store.update_idea(
+        idea_id,
+        changes,
+        workspace_id=_workspace_id(x_christina_workspace),
+    )
     if item is None:
         raise HTTPException(status_code=404, detail="Idea not found.")
     return item
@@ -519,6 +542,7 @@ async def update_idea(idea_id: int, payload: IdeaUpdate) -> dict:
 async def generate_agent_documents_for_idea(
     idea_id: int,
     payload: IdeaAgentProductionDocsRequest,
+    x_christina_workspace: str | None = Header(default=None, alias="X-Christina-Workspace"),
 ) -> dict:
     if not creator_agent_configured():
         raise HTTPException(
@@ -526,9 +550,10 @@ async def generate_agent_documents_for_idea(
             detail="Creator Agent is not configured. Add a key for the selected AI provider.",
         )
 
+    workspace_id = _workspace_id(x_christina_workspace)
     platform = payload.platform.strip()
 
-    idea = snapshot_store.get_idea(idea_id)
+    idea = snapshot_store.get_idea(idea_id, workspace_id=workspace_id)
     if idea is None:
         raise HTTPException(status_code=404, detail="Idea not found.")
 
@@ -565,7 +590,7 @@ async def generate_agent_documents_for_idea(
         source_research = next(
             (
                 item
-                for item in snapshot_store.list_saved_research()
+                for item in snapshot_store.list_saved_research(workspace_id=workspace_id)
                 if str(item.get("videoId") or item.get("id") or "") == source_video_id
             ),
             None,
@@ -607,6 +632,7 @@ async def generate_agent_documents_for_idea(
                 filename=f"idea-{idea_id}-{safe_platform}{safe_duration}-{suffix}.md",
                 content_type="text/markdown; charset=utf-8",
                 content=(text_body + "\n").encode("utf-8"),
+                workspace_id=workspace_id,
             )
         )
 
@@ -622,16 +648,26 @@ async def generate_agent_documents_for_idea(
 
 
 @app.get("/api/ideas/{idea_id}/documents")
-async def idea_documents(idea_id: int) -> dict:
+async def idea_documents(
+    idea_id: int,
+    x_christina_workspace: str | None = Header(default=None, alias="X-Christina-Workspace"),
+) -> dict:
     try:
-        items = snapshot_store.list_idea_documents(idea_id)
+        items = snapshot_store.list_idea_documents(
+            idea_id,
+            workspace_id=_workspace_id(x_christina_workspace),
+        )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {"count": len(items), "items": items}
 
 
 @app.post("/api/ideas/{idea_id}/documents", status_code=201)
-async def upload_idea_document(idea_id: int, payload: IdeaDocumentUpload) -> dict:
+async def upload_idea_document(
+    idea_id: int,
+    payload: IdeaDocumentUpload,
+    x_christina_workspace: str | None = Header(default=None, alias="X-Christina-Workspace"),
+) -> dict:
     kind = payload.kind.strip().lower() or "other"
     _validate_choice(kind, IDEA_DOCUMENT_KINDS, "Document kind")
 
@@ -658,14 +694,21 @@ async def upload_idea_document(idea_id: int, payload: IdeaDocumentUpload) -> dic
             filename=filename,
             content_type=payload.contentType or "application/octet-stream",
             content=content,
+            workspace_id=_workspace_id(x_christina_workspace),
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.get("/api/idea-documents/{document_id}")
-async def download_idea_document(document_id: int) -> Response:
-    item = snapshot_store.get_idea_document(document_id)
+async def download_idea_document(
+    document_id: int,
+    x_christina_workspace: str | None = Header(default=None, alias="X-Christina-Workspace"),
+) -> Response:
+    item = snapshot_store.get_idea_document(
+        document_id,
+        workspace_id=_workspace_id(x_christina_workspace),
+    )
     if item is None:
         raise HTTPException(status_code=404, detail="Document not found.")
 
@@ -679,7 +722,11 @@ async def download_idea_document(document_id: int) -> Response:
 
 
 @app.patch("/api/idea-documents/{document_id}/cloud")
-async def update_idea_document_cloud(document_id: int, payload: IdeaDocumentCloudUpdate) -> dict:
+async def update_idea_document_cloud(
+    document_id: int,
+    payload: IdeaDocumentCloudUpdate,
+    x_christina_workspace: str | None = Header(default=None, alias="X-Christina-Workspace"),
+) -> dict:
     provider = payload.provider.strip().lower()
     if provider != "google_docs":
         raise HTTPException(status_code=422, detail="Unsupported cloud provider.")
@@ -688,6 +735,7 @@ async def update_idea_document_cloud(document_id: int, payload: IdeaDocumentClou
         provider=provider,
         file_id=payload.fileId.strip(),
         url=payload.url.strip(),
+        workspace_id=_workspace_id(x_christina_workspace),
     )
     if item is None:
         raise HTTPException(status_code=404, detail="Document not found.")
@@ -695,10 +743,16 @@ async def update_idea_document_cloud(document_id: int, payload: IdeaDocumentClou
 
 
 @app.delete("/api/idea-documents/{document_id}")
-async def delete_idea_document(document_id: int) -> dict:
+async def delete_idea_document(
+    document_id: int,
+    x_christina_workspace: str | None = Header(default=None, alias="X-Christina-Workspace"),
+) -> dict:
     return {
         "documentId": document_id,
-        "deleted": snapshot_store.delete_idea_document(document_id),
+        "deleted": snapshot_store.delete_idea_document(
+            document_id,
+            workspace_id=_workspace_id(x_christina_workspace),
+        ),
     }
 
 
