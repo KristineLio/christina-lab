@@ -11,6 +11,8 @@
     shortTranscript: "",
     shortPlatform: "YouTube Shorts",
     shortDuration: 8,
+    shortTranscriptLoading: false,
+    shortTranscriptMeta: "",
     shortAnalyzing: false,
     shortGenerating: false,
     shortMoments: [],
@@ -46,6 +48,8 @@
     state.shortTranscript = "";
     state.shortPlatform = "YouTube Shorts";
     state.shortDuration = 8;
+    state.shortTranscriptLoading = false;
+    state.shortTranscriptMeta = "";
     state.shortAnalyzing = false;
     state.shortGenerating = false;
     state.shortMoments = [];
@@ -163,6 +167,8 @@
           html += '<button class="btn ghost" type="button" id="agentShortClose">Close</button></div>';
 
           html += '<form class="form agent-short-form" id="agentShortAnalyzeForm">';
+          html += '<div class="agent-short-transcript-tools"><button class="btn" type="button" id="agentShortLoadTranscript"' + (state.shortTranscriptLoading ? ' disabled' : '') + '>' + (state.shortTranscriptLoading ? 'Loading transcript…' : 'Load YouTube transcript') + '</button>';
+          html += '<span class="meta">' + esc(state.shortTranscriptMeta || 'If public captions are available, Christina Lab will timestamp them automatically. You can still paste a transcript manually.') + '</span></div>';
           html += '<label>Timestamped transcript<textarea name="transcript" rows="9" required placeholder="Paste the video transcript with timestamps, e.g. 00:43 ...">' + esc(state.shortTranscript) + '</textarea></label>';
           html += '<div class="grid2"><label>Target platform<select name="platform">';
           ["YouTube Shorts", "TikTok", "Instagram Reels"].forEach(function (platform) {
@@ -369,6 +375,35 @@
       resetShortState("");
       rerender();
     };
+
+    const shortTranscriptButton = document.getElementById("agentShortLoadTranscript");
+    if (shortTranscriptButton) {
+      shortTranscriptButton.onclick = async function () {
+        if (!state.research || !state.shortSourceId) return;
+        const source = (state.research.sourceMaterials || []).find(function (item) {
+          return String(item.id) === String(state.shortSourceId);
+        });
+        if (!source || !source.id) return;
+
+        state.shortTranscriptLoading = true;
+        state.shortError = "";
+        state.shortTranscriptMeta = "Requesting public captions from YouTube…";
+        rerender();
+        try {
+          const response = await apiJson(apiBase, "/api/agent/shorts/transcript/" + encodeURIComponent(source.id));
+          state.shortTranscript = String(response.transcript || "");
+          state.shortTranscriptMeta = (response.language || response.languageCode || "Transcript") +
+            " · " + Number(response.snippetCount || 0) + " caption lines" +
+            (response.isGenerated ? " · auto-generated captions" : "");
+        } catch (error) {
+          state.shortError = error && error.message || "Public captions could not be loaded. Paste the timestamped transcript manually.";
+          state.shortTranscriptMeta = "Automatic transcript unavailable — manual paste still works.";
+        } finally {
+          state.shortTranscriptLoading = false;
+          rerender();
+        }
+      };
+    }
 
     const shortForm = document.getElementById("agentShortAnalyzeForm");
     if (shortForm) {
