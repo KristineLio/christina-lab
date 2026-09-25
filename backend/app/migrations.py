@@ -232,6 +232,26 @@ def _migration_5_private_alpha_workspaces(db: DatabaseConnection) -> None:
 
     db.execute(
         """
+        CREATE TABLE IF NOT EXISTS workspace_access (
+            workspace_id TEXT PRIMARY KEY,
+            access_key_hash TEXT NOT NULL DEFAULT '',
+            claimed_at TEXT
+        )
+        """
+    )
+    owner_access = db.execute(
+        "SELECT workspace_id FROM workspace_access WHERE workspace_id = 'owner'"
+    ).fetchone()
+    if owner_access is None:
+        db.execute(
+            """
+            INSERT INTO workspace_access (workspace_id, access_key_hash, claimed_at)
+            VALUES ('owner', '', NULL)
+            """
+        )
+
+    db.execute(
+        """
         CREATE TABLE IF NOT EXISTS workspace_saved_research (
             workspace_id TEXT NOT NULL,
             video_id TEXT NOT NULL,
