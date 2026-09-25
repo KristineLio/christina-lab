@@ -119,7 +119,7 @@ class SavedResearchAgentIdeaRequest(BaseModel):
 
 class IdeaAgentProductionDocsRequest(BaseModel):
     platform: str = Field(min_length=1, max_length=40)
-    targetDurationMinutes: int | None = Field(default=None, ge=3, le=30)
+    targetDurationMinutes: int | None = Field(default=None, ge=3, le=20)
 
 
 class CreatorAgentResearchRequest(BaseModel):
