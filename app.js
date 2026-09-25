@@ -652,6 +652,7 @@
     if (!filename.startsWith(prefix) || !filename.endsWith(".md")) return "";
     const platforms = [
       ["youtube-shorts", "YouTube Shorts"],
+      ["youtube", "YouTube"],
       ["tiktok", "TikTok"],
       ["pinterest", "Pinterest"],
       ["instagram", "Instagram"],
@@ -660,12 +661,30 @@
     return match ? match[1] : "";
   }
 
-  function latestIdeaProductionPlatform(documents, ideaId) {
+  function ideaProductionDuration(doc, ideaId) {
+    const filename = String(doc?.filename || "").toLowerCase();
+    const marker = "idea-" + String(ideaId) + "-youtube-";
+    if (!filename.startsWith(marker)) return null;
+    const match = filename.slice(marker.length).match(/^(\d+)min-/);
+    return match ? Number(match[1]) : null;
+  }
+
+  function latestIdeaProductionPlatform(documents, ideaId, ideaType = "Short") {
     const generated = documents
       .filter((doc) => ideaProductionPlatform(doc, ideaId))
       .slice()
       .sort((a, b) => String(b.uploadedAt || "").localeCompare(String(a.uploadedAt || "")));
-    return generated.length ? ideaProductionPlatform(generated[0], ideaId) : "YouTube Shorts";
+    return generated.length
+      ? ideaProductionPlatform(generated[0], ideaId)
+      : (String(ideaType || "") === "Short" ? "YouTube Shorts" : "YouTube");
+  }
+
+  function latestIdeaProductionDuration(documents, ideaId) {
+    const generated = documents
+      .filter((doc) => ideaProductionPlatform(doc, ideaId) === "YouTube" && ideaProductionDuration(doc, ideaId))
+      .slice()
+      .sort((a, b) => String(b.uploadedAt || "").localeCompare(String(a.uploadedAt || "")));
+    return generated.length ? ideaProductionDuration(generated[0], ideaId) : 7;
   }
 
   function isTextIdeaDocument(doc) {
@@ -744,7 +763,12 @@
     try {
       const payload = await fetchJson("/api/ideas/" + encodeURIComponent(idea.id) + "/documents");
       const items = Array.isArray(payload.items) ? payload.items : [];
-      renderIdeaDocumentsModal(idea, items, latestIdeaProductionPlatform(items, idea.id));
+      renderIdeaDocumentsModal(
+        idea,
+        items,
+        latestIdeaProductionPlatform(items, idea.id, idea.type),
+        latestIdeaProductionDuration(items, idea.id)
+      );
     } catch (error) {
       m.innerHTML = `<div class="modal idea-modal production-pack-modal">
         <h2 style="margin:0 0 6px;font-size:16px">Production Pack</h2>
@@ -755,8 +779,18 @@
     }
   }
 
-  function renderIdeaDocumentsModal(idea, documents, selectedPlatform = "YouTube Shorts") {
+  function renderIdeaDocumentsModal(idea, documents, selectedPlatform = "", selectedDurationMinutes = null) {
     const m = $("modal");
+    const isLongForm = String(idea.type || "") !== "Short";
+    const allowedPlatforms = isLongForm
+      ? ["YouTube"]
+      : ["YouTube Shorts", "TikTok", "Pinterest", "Instagram"];
+    if (!allowedPlatforms.includes(selectedPlatform)) {
+      selectedPlatform = isLongForm ? "YouTube" : "YouTube Shorts";
+    }
+    const targetDurationMinutes = isLongForm
+      ? Math.min(20, Math.max(3, Number(selectedDurationMinutes) || latestIdeaProductionDuration(documents, idea.id) || 7))
+      : null;
     const kinds = {
       script: "Script",
       plan: "Production Plan",
@@ -766,7 +800,9 @@
       other: "Other",
     };
     const productionKinds = ["script", "plan", "video_prompt", "photo_reference"];
-    const generatedDocs = documents.filter((doc) => ideaProductionPlatform(doc, idea.id));
+    const generatedDocs = documents.filter((doc) =>
+      allowedPlatforms.includes(ideaProductionPlatform(doc, idea.id))
+    );
     const selectedGenerated = generatedDocs
       .filter((doc) => ideaProductionPlatform(doc, idea.id) === selectedPlatform)
       .slice()
@@ -776,7 +812,8 @@
       if (productionKinds.includes(doc.kind) && !latestByKind[doc.kind]) latestByKind[doc.kind] = doc;
     });
     const packDocs = productionKinds.map((kind) => latestByKind[kind]).filter(Boolean);
-    const additionalDocs = documents.filter((doc) => !ideaProductionPlatform(doc, idea.id));
+    const generatedDocIds = new Set(generatedDocs.map((doc) => String(doc.id)));
+    const additionalDocs = documents.filter((doc) => !generatedDocIds.has(String(doc.id)));
     const generatedPlatforms = [...new Set(generatedDocs.map((doc) => ideaProductionPlatform(doc, idea.id)).filter(Boolean))];
 
     const productionCard = (doc) => {
