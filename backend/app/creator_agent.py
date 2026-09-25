@@ -593,6 +593,13 @@ Rules:
 """
 
 
+def _long_form_ai_scene_prompt_count(duration_minutes: int) -> int:
+    """Keep long-form AI inserts useful without turning the pack into filler."""
+    if duration_minutes <= 0:
+        return 0
+    return max(4, min(8, ((duration_minutes + 1) // 2) + 1))
+
+
 async def generate_idea_production_docs(
     *,
     idea: dict[str, Any],
@@ -611,6 +618,7 @@ async def generate_idea_production_docs(
         else "Not applicable"
     )
     orientation = "16:9" if is_long_form else "9:16"
+    ai_scene_prompt_count = _long_form_ai_scene_prompt_count(duration_minutes)
 
     prompt = f"""CHRISTINA LAB IDEA
 {json.dumps(idea, ensure_ascii=False)[:14000]}
@@ -663,9 +671,12 @@ If the idea is Long-form:
 - structure the story for retention: hook -> setup/problem -> decisions/process -> proof/demo -> payoff/lesson -> close;
 - productionPlan must cover the FULL requested runtime with timestamped sections whose total duration is approximately {target_runtime};
 - each production-plan section must say what the viewer hears and sees, including talking-head/faceless narration, real screen recording, project footage, B-roll, overlays, or optional AI-generated inserts;
-- videoPrompt must NOT pretend one generative-video call can create the whole long-form video;
-- videoPrompt should generate only the strongest 6-10 second opening/hero/teaser scene in 16:9 that supports the full YouTube video;
-- clearly label all remaining footage as REAL CAPTURE, SCREEN RECORDING, B-ROLL, or SEPARATELY GENERATED INSERTS.
+- videoPrompt is an AI GENERATION PACK for the full production, not one giant prompt and not one opening clip;
+- the AI Generation Pack must include one strong opening/hero prompt plus approximately {ai_scene_prompt_count} additional optional AI scene prompts distributed across meaningful points in the full {target_runtime} timeline;
+- every scene prompt must have a TIMESTAMP WINDOW, a PURPOSE, and a clearly marked COPY-PASTE AI STUDIO / VEO PROMPT;
+- generated scenes should normally be 6-10 seconds each and must support—not replace—the creator's real footage;
+- clearly separate REAL FOOTAGE NEEDED, SCREEN RECORDINGS NEEDED, OPTIONAL AI INSERTS, and ASSEMBLY NOTES;
+- if a scene depends on a real app, real code, a real result, or readable factual UI, require REAL CAPTURE / SCREEN RECORDING instead of asking AI to fabricate it.
 
 SCRIPT DOCUMENT
 - Start with a heading that states Content type, Platform, orientation, and target runtime when Long-form.
@@ -681,13 +692,23 @@ PRODUCTION PLAN DOCUMENT
 - Separate VERIFIED/SUPPLIED material from REQUIRED CAPTURE and OPTIONAL AI-GENERATED material.
 - When source research includes a thumbnail URL, label it only as an available SOURCE THUMBNAIL, not as proof that it is the correct frame for the new video.
 
-VIDEO PROMPT DOCUMENT
-- Must contain one clearly marked, copy-paste-ready AI Studio / Veo-style prompt.
-- State Platform, {orientation} aspect ratio, suggested generated-scene duration, tone, subject/action, environment, camera behavior, lighting, pacing, on-screen text, narration/voiceover intent, and ending.
-- For Long-form, make explicit that this prompt is for an OPENING/HERO INSERT only, not the whole {target_runtime} YouTube video.
+VIDEO PROMPT / AI GENERATION PACK DOCUMENT
+- Keep using the output field named videoPrompt for schema compatibility.
+- If content type is Short: return one clearly marked, copy-paste-ready AI Studio / Veo-style prompt for the complete short.
+- If content type is Long-form: title the document "AI Generation Pack" and organize it as:
+  1. PURPOSE / HOW TO USE THIS PACK
+  2. OPENING / HERO PROMPT with timestamp window
+  3. TIMELINE AI SCENE PROMPTS: approximately {ai_scene_prompt_count} additional optional prompts distributed across the requested {target_runtime}, each with timestamp window, purpose, suggested 6-10 second duration, and a copy-paste-ready prompt
+  4. REAL FOOTAGE NEEDED
+  5. SCREEN RECORDINGS NEEDED
+  6. OPTIONAL AI INSERTS
+  7. ASSEMBLY NOTES explaining how to combine real proof with the generated inserts
+- For every copy-paste-ready prompt, state Platform, {orientation} aspect ratio, scene duration, tone, subject/action, environment, camera behavior, lighting, pacing, on-screen text, narration/voiceover intent, and ending.
+- Long-form scene prompts should cover different narrative jobs across the full video rather than repeating the same visual.
 - Tell the model to use a supplied reference image for composition/environment/continuity only.
 - Do not instruct it to clone or impersonate an identifiable real person.
 - If a person is needed, request an original/generic presenter unless the user has rights to reproduce the likeness.
+- Never ask AI to fabricate real project UI, code results, analytics, test output, screenshots, product behavior, or factual evidence. Route those moments to REAL FOOTAGE or SCREEN RECORDINGS.
 - Do not request fake UI, fake data, fabricated screenshots, gibberish text, watermarks, or unsupported claims.
 
 PHOTO REFERENCE DOCUMENT
@@ -705,7 +726,7 @@ Include:
 - A clearly marked IMAGE GENERATION PROMPT that can be used to create the still reference when no suitable real image exists
 - A clearly marked REAL CAPTURE INSTRUCTION describing what screenshot/photo to take if a real project/source image is preferable
 
-The output must be practical enough that the creator can read the Script and Production Plan directly in Christina Lab, copy the AI video prompt when useful, prepare the reference image, and start producing immediately.
+The output must be practical enough that the creator can read the Script and Production Plan directly in Christina Lab, use the AI Generation Pack scene-by-scene when useful, prepare the reference image, capture the required real footage, and assemble the requested production immediately.
 """
 
     result, provider_attempt = await _structured_response(
@@ -716,7 +737,8 @@ Idea Production Documents rules:
 - For Long-form, the user's selected target runtime ({target_runtime}) is a hard constraint.
 - Long-form YouTube uses 16:9. Short-form platform packs use 9:16.
 - Produce executable production material, not generic brainstorming.
-- Never imply one AI-generated clip can replace the complete long-form production workflow.
+- Never imply one AI-generated clip or one giant prompt can replace the complete long-form production workflow.
+- For Long-form, videoPrompt must be a multi-scene AI Generation Pack distributed across the requested runtime, with explicit real-footage and screen-recording requirements.
 - A photo-reference document is a reference brief/capture-or-generation instruction unless a real image has actually been supplied.
 - Never imply that an image, screenshot, project behavior, or performance result exists unless the supplied evidence proves it.
 """,

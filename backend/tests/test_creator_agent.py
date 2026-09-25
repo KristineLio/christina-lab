@@ -5,6 +5,7 @@ from backend.app.creator_agent import (
     SHORT_MOMENTS_SCHEMA,
     SHORT_PACKAGE_SCHEMA,
     _github_repo_parts,
+    _long_form_ai_scene_prompt_count,
     compact_youtube_sources,
     relevant_saved_research,
 )
@@ -150,3 +151,11 @@ def test_idea_production_docs_schema_contains_video_prompt_and_photo_reference()
         "photoReference",
     }
     assert set(IDEA_PRODUCTION_DOCS_SCHEMA["required"]) == set(props)
+
+
+
+def test_long_form_ai_scene_prompt_count_scales_without_overfilling():
+    assert _long_form_ai_scene_prompt_count(3) == 4
+    assert _long_form_ai_scene_prompt_count(7) == 5
+    assert _long_form_ai_scene_prompt_count(12) == 7
+    assert _long_form_ai_scene_prompt_count(20) == 8

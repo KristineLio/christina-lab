@@ -691,7 +691,7 @@
     return String(doc?.contentType || "").startsWith("text/") || /\.(md|txt)$/i.test(String(doc?.filename || ""));
   }
 
-  function productionAssetMeta(kind) {
+  function productionAssetMeta(kind, isLongForm = false) {
     return {
       script: {
         title: "Script",
@@ -705,12 +705,19 @@
         openLabel: "View plan",
         copyLabel: "Copy plan",
       },
-      video_prompt: {
-        title: "AI Video Prompt",
-        description: "Copy-paste-ready prompt for AI Studio / Veo.",
-        openLabel: "View prompt",
-        copyLabel: "Copy prompt",
-      },
+      video_prompt: isLongForm
+        ? {
+            title: "AI Generation Pack",
+            description: "Timeline-mapped AI scene prompts plus real-footage, screen-recording and assembly guidance for the full YouTube production.",
+            openLabel: "View AI pack",
+            copyLabel: "Copy AI pack",
+          }
+        : {
+            title: "AI Video Prompt",
+            description: "Copy-paste-ready prompt for AI Studio / Veo.",
+            openLabel: "View prompt",
+            copyLabel: "Copy prompt",
+          },
       photo_reference: {
         title: "Photo Reference",
         description: "Visual brief, real-capture direction and image-generation prompt.",
@@ -795,7 +802,7 @@
       script: "Script",
       plan: "Production Plan",
       reference: "Reference",
-      video_prompt: "AI Video Prompt",
+      video_prompt: isLongForm ? "AI Generation Pack" : "AI Video Prompt",
       photo_reference: "Photo Reference",
       other: "Other",
     };
@@ -817,7 +824,7 @@
     const generatedPlatforms = [...new Set(generatedDocs.map((doc) => ideaProductionPlatform(doc, idea.id)).filter(Boolean))];
 
     const productionCard = (doc) => {
-      const meta = productionAssetMeta(doc.kind);
+      const meta = productionAssetMeta(doc.kind, isLongForm);
       const googleAction = canConvertToGoogleDocs(doc)
         ? doc.cloudUrl
           ? `<a class="btn primary" href="${esc(doc.cloudUrl)}" target="_blank" rel="noopener">Open Google Doc ✓</a>`
@@ -906,7 +913,7 @@
           ? `<div class="production-assets-grid">${packDocs.map(productionCard).join("")}</div>`
           : `<div class="production-pack-empty">
               <h3>No ${esc(selectedPlatform)}${isLongForm ? " " + esc(String(targetDurationMinutes)) + "-minute" : ""} production pack yet.</h3>
-              <p>Generate one above and Christina Lab will create the Script, Production Plan, AI Video Prompt and Photo Reference.</p>
+              <p>Generate one above and Christina Lab will create the Script, Production Plan, ${isLongForm ? "AI Generation Pack" : "AI Video Prompt"} and Photo Reference.</p>
             </div>`}
       </section>
 
@@ -1018,7 +1025,7 @@
         const doc = documents.find((item) => String(item.id) === String(button.dataset.viewDoc));
         if (!doc) return;
         const preview = $("ideaDocumentPreview");
-        const meta = productionAssetMeta(doc.kind);
+        const meta = productionAssetMeta(doc.kind, isLongForm);
         preview.hidden = false;
         preview.innerHTML = '<div class="production-preview-loading"><div class="skel"></div><div class="skel"></div></div>';
         preview.scrollIntoView({ behavior: "smooth", block: "start" });
