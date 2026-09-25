@@ -1363,6 +1363,8 @@ class SnapshotStore:
     def update_experiment(self, experiment_id: int, changes: dict) -> dict | None:
         allowed = {
             "name": "name",
+            "topic": "topic",
+            "format": "format",
             "hypothesis": "hypothesis",
             "status": "status",
             "publishedAt": "published_at",
