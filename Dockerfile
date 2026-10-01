@@ -5,8 +5,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY backend/requirements.txt /app/backend/requirements.txt
-RUN pip install --no-cache-dir -r /app/backend/requirements.txt
+COPY backend/requirements-video.txt /app/backend/requirements-video.txt
+RUN pip install --no-cache-dir -r /app/backend/requirements.txt \
+    && pip install --no-cache-dir -r /app/backend/requirements-video.txt
 
 COPY . /app
 

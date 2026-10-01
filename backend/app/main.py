@@ -6,11 +6,12 @@ import binascii
 import os
 import re
 import secrets
+import tempfile
 from pathlib import Path
 from urllib.parse import quote
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Header, HTTPException, Query
+from fastapi import BackgroundTasks, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
@@ -31,6 +32,14 @@ from .creator_agent import (
     relevant_saved_research,
     compact_youtube_sources,
     research_angles,
+)
+from .clip_lab import (
+    MAX_UPLOAD_BYTES,
+    clip_lab_status,
+    clip_output_path,
+    create_clip_job,
+    get_clip_job,
+    process_clip_job,
 )
 from .data_migration import export_database
 from .storage import SnapshotStore
@@ -872,6 +881,107 @@ async def creator_agent_research(
         "youtubeCount": len(sources),
         "savedResearchCount": len(saved),
     }
+
+
+@app.get("/api/clips/status")
+async def clip_lab_backend_status() -> dict:
+    return clip_lab_status()
+
+
+@app.post("/api/clips/jobs", status_code=202)
+async def create_clip_lab_job(
+    background_tasks: BackgroundTasks,
+    video: UploadFile = File(...),
+    clipCount: int = Form(default=3, ge=1, le=3),
+    minSeconds: int = Form(default=20, ge=8, le=60),
+    maxSeconds: int = Form(default=45, ge=12, le=90),
+    burnCaptions: bool = Form(default=True),
+    x_christina_workspace: str | None = Header(default=None, alias="X-Christina-Workspace"),
+) -> dict:
+    workspace_id = _workspace_id(x_christina_workspace)
+    status = clip_lab_status()
+    if not status.get("configured"):
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Clip Lab worker is not ready on this deployment. "
+                "FFmpeg, ffprobe and faster-whisper are required."
+            ),
+        )
+
+    if maxSeconds < minSeconds:
+        raise HTTPException(status_code=422, detail="Maximum clip length must be at least the minimum.")
+
+    original_name = Path(video.filename or "source.mp4").name
+    extension = Path(original_name).suffix.lower()
+    if extension not in {".mp4", ".mov", ".m4v", ".webm"}:
+        raise HTTPException(status_code=422, detail="Upload an MP4, MOV, M4V, or WEBM video.")
+
+    temp_path: Path | None = None
+    total = 0
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=extension) as handle:
+            temp_path = Path(handle.name)
+            while True:
+                chunk = await video.read(1024 * 1024)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > MAX_UPLOAD_BYTES:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"Clip Lab uploads are limited to {MAX_UPLOAD_BYTES // (1024 * 1024)} MB.",
+                    )
+                handle.write(chunk)
+    except Exception:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+        raise
+    finally:
+        await video.close()
+
+    if not total or temp_path is None:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=422, detail="The uploaded video is empty.")
+
+    job = create_clip_job(
+        workspace_id=workspace_id,
+        source_path=temp_path,
+        original_name=original_name,
+        clip_count=clipCount,
+        min_seconds=minSeconds,
+        max_seconds=maxSeconds,
+        burn_captions=burnCaptions,
+    )
+    background_tasks.add_task(process_clip_job, job["id"])
+    return job
+
+
+@app.get("/api/clips/jobs/{job_id}")
+async def clip_lab_job(
+    job_id: str,
+    x_christina_workspace: str | None = Header(default=None, alias="X-Christina-Workspace"),
+) -> dict:
+    workspace_id = _workspace_id(x_christina_workspace)
+    job = get_clip_job(job_id, workspace_id=workspace_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Clip Lab job not found.")
+    return job
+
+
+@app.get("/api/clips/jobs/{job_id}/files/{filename}")
+async def clip_lab_download(
+    job_id: str,
+    filename: str,
+    x_christina_workspace: str | None = Header(default=None, alias="X-Christina-Workspace"),
+) -> FileResponse:
+    workspace_id = _workspace_id(x_christina_workspace)
+    path = clip_output_path(job_id, filename, workspace_id=workspace_id)
+    if path is None:
+        raise HTTPException(status_code=404, detail="Clip Lab output not found.")
+    media_type = "video/mp4" if path.suffix.lower() == ".mp4" else "application/x-subrip"
+    return FileResponse(path, media_type=media_type, filename=path.name)
 
 
 @app.get("/api/agent/shorts/transcript/{video_id}")
