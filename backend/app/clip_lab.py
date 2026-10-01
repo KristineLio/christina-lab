@@ -321,12 +321,12 @@ def _ffmpeg_subtitle_path(path: Path) -> str:
 
 def _render_clip(*, source: Path, output: Path, start: float, end: float, srt_path: Path | None) -> None:
     duration = max(0.1, end - start)
-    video_filter = "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920"
+    video_filter = "scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280"
     if srt_path is not None and srt_path.exists() and srt_path.stat().st_size:
         video_filter += (
             ",subtitles='" + _ffmpeg_subtitle_path(srt_path)
-            + "':force_style='FontName=Arial,FontSize=22,PrimaryColour=&H00FFFFFF,"
-            "OutlineColour=&H00000000,BorderStyle=1,Outline=3,Shadow=0,Alignment=2,MarginV=125'"
+            + "':force_style='FontName=Arial,FontSize=20,PrimaryColour=&H00FFFFFF,"
+            "OutlineColour=&H00000000,BorderStyle=1,Outline=3,Shadow=0,Alignment=2,MarginV=85'"
         )
 
     subprocess.run(
