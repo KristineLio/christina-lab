@@ -110,6 +110,10 @@
     creatorAgentProvider: "gemini",
     creatorAgentModel: "",
     creatorAgentProviders: null,
+    clipLab: null,
+    clipJob: null,
+    clipUploading: false,
+    clipPollTimer: null,
     workspaceAccessKey: "",
     workspaceReady: false,
     workspaceType: "",
@@ -347,6 +351,7 @@
       state.creatorAgentProvider = String(payload.creatorAgentProvider || "gemini").trim();
       state.creatorAgentModel = String(payload.creatorAgentModel || "").trim();
       state.creatorAgentProviders = payload.creatorAgentProviders || null;
+      state.clipLab = payload.clipLab || null;
       state.publicConfigLoaded = true;
     } catch (error) {
       state.publicConfigError = error?.message || "Could not load cloud integration settings.";
@@ -596,6 +601,7 @@
       ["Discover market signals", "/discover"],
       ["Turn saved research into an idea", "/saved"],
       ["Open ideas and production packs", "/ideas"],
+      ["Turn a long video into short clips", "/clips"],
       ["Open experiments", "/lab"],
       ["Review published videos", "/videos"],
       ["Learn from patterns", "/patterns"],
@@ -1625,6 +1631,7 @@
     ["Saved Research", "/saved", "bookmark"],
     ["Create", null],
     ["Ideas", "/ideas", "light"],
+    ["Clip Lab", "/clips", "scissors"],
     ["Test", null],
     ["Experiments", "/lab", "flask"],
     ["My Videos", "/videos", "play"],
@@ -2202,6 +2209,177 @@
     </svg>`;
   }
 
+  function clipLab() {
+    const status = state.clipLab || {};
+    const job = state.clipJob;
+    const ready = Boolean(status.configured);
+
+    const statusCard = `
+      <div class="card" style="padding:14px;margin-bottom:12px">
+        <div class="actions" style="justify-content:space-between;align-items:center">
+          <div>
+            <div class="t">Local-first clip worker</div>
+            <div class="meta">${ready
+              ? "FFmpeg + local Whisper " + esc(status.whisperModel || "tiny") + " ready"
+              : "Video worker is not ready on this deployment"}</div>
+          </div>
+          <span class="badge ${ready ? "go" : "hold"}">${ready ? "READY" : "NOT READY"}</span>
+        </div>
+      </div>`;
+
+    if (!job) {
+      return `
+        <div class="product-hero">
+          <div>
+            <div class="eyebrow">REPURPOSE</div>
+            <div class="product-title">Turn one long video into three vertical clips.</div>
+            <p class="sub">Upload your own MP4/MOV/WEBM. Christina Lab transcribes it locally, finds strong self-contained moments, reframes them to 9:16, burns captions, and gives you ready-to-download clips.</p>
+          </div>
+        </div>
+        ${statusCard}
+        <div class="card" style="padding:16px">
+          <form class="form" id="clipLabForm">
+            <label>Long-form video
+              <input name="video" type="file" accept="video/mp4,video/quicktime,video/webm,.m4v" required />
+            </label>
+            <div class="grid2">
+              <label>Number of clips
+                <select name="clipCount">
+                  <option value="3" selected>3 clips</option>
+                  <option value="2">2 clips</option>
+                  <option value="1">1 clip</option>
+                </select>
+              </label>
+              <label>Burn captions
+                <select name="burnCaptions">
+                  <option value="true" selected>Yes</option>
+                  <option value="false">No — export SRT only</option>
+                </select>
+              </label>
+              <label>Minimum length
+                <select name="minSeconds">
+                  <option value="15">15 sec</option>
+                  <option value="20" selected>20 sec</option>
+                  <option value="30">30 sec</option>
+                </select>
+              </label>
+              <label>Maximum length
+                <select name="maxSeconds">
+                  <option value="30">30 sec</option>
+                  <option value="45" selected>45 sec</option>
+                  <option value="60">60 sec</option>
+                </select>
+              </label>
+            </div>
+            <div class="card" style="padding:12px;background:var(--bg2)">
+              <div class="t">What happens to the video?</div>
+              <div class="meta">The video is processed on the Christina Lab worker with FFmpeg + local Whisper. If AI assistance is configured, only the timestamped transcript is sent to the configured AI provider to rank the strongest moments; the uploaded video itself is not sent to that AI provider. If AI ranking fails, Christina Lab falls back to local heuristics.</div>
+            </div>
+            <button class="btn primary" type="submit" ${!ready || state.clipUploading ? "disabled" : ""}>
+              ${state.clipUploading ? "Uploading…" : "Create clips"}
+            </button>
+          </form>
+        </div>`;
+    }
+
+    const progress = Number(job.progress || 0);
+    const progressCard = `
+      <div class="card" style="padding:16px;margin-bottom:12px">
+        <div class="actions" style="justify-content:space-between;align-items:center">
+          <div>
+            <div class="t">${esc(job.originalName || "Video")}</div>
+            <div class="meta">${esc(job.message || job.stage || "")}</div>
+          </div>
+          <span class="badge ${job.status === "completed" ? "go" : job.status === "failed" ? "hold" : "test"}">${esc(String(job.status || "").toUpperCase())}</span>
+        </div>
+        <div style="height:10px;background:var(--surf2);border:1px solid var(--line);border-radius:999px;overflow:hidden;margin-top:12px">
+          <div style="height:100%;width:${Math.max(0, Math.min(100, progress))}%;background:var(--accent)"></div>
+        </div>
+        <div class="meta">${progress}% · ${esc(job.stage || "")}${job.language ? " · language " + esc(job.language) : ""}</div>
+        ${job.error ? '<div class="badge hold" style="margin-top:10px;white-space:normal">' + esc(job.error) + "</div>" : ""}
+      </div>`;
+
+    if (job.status !== "completed") {
+      return `
+        <div class="product-hero"><div><div class="eyebrow">CLIP LAB</div><div class="product-title">Building your short-form cuts.</div><p class="sub">Transcription and rendering run in the background. Keep this page open while the alpha worker finishes.</p></div></div>
+        ${progressCard}
+        <button class="btn ghost" id="clipReset">Start another upload</button>`;
+    }
+
+    const method = job.selectionMethod === "creator-agent" ? "Creator Agent + transcript evidence" : "Local transcript heuristic";
+    return `
+      <div class="product-hero">
+        <div>
+          <div class="eyebrow">CLIPS READY</div>
+          <div class="product-title">Three short-form candidates from one video.</div>
+          <p class="sub">Moment selection: ${esc(method)}. Vertical 9:16 rendering and subtitles were produced by the local worker.</p>
+        </div>
+      </div>
+      ${progressCard}
+      <div class="grid2">
+        ${(job.clips || []).map((clip) => `
+          <div class="card" style="padding:14px">
+            <div class="actions" style="justify-content:space-between;align-items:center">
+              <div class="t">#${clip.rank} · ${esc(clip.label || "Clip")}</div>
+              <span class="badge strong">${Number(clip.durationSeconds || 0).toFixed(1)}s</span>
+            </div>
+            <div class="meta">${Number(clip.startSeconds || 0).toFixed(1)}s → ${Number(clip.endSeconds || 0).toFixed(1)}s</div>
+            ${clip.whyStrong ? '<p style="font-size:13px">' + esc(clip.whyStrong) + "</p>" : ""}
+            <div class="card" style="padding:10px;background:var(--bg2);font-size:12px;line-height:1.45;margin:10px 0">${esc(clip.transcript || "")}</div>
+            <div class="actions" style="justify-content:flex-start">
+              <button class="btn primary" data-clip-download="${esc(clip.videoFilename)}">Download MP4</button>
+              <button class="btn" data-clip-download="${esc(clip.subtitleFilename)}">Download SRT</button>
+            </div>
+          </div>`).join("")}
+      </div>
+      <div class="actions" style="justify-content:flex-start;margin-top:14px">
+        <button class="btn" id="clipReset">Clip another video</button>
+      </div>`;
+  }
+
+  async function pollClipJob(jobId) {
+    if (!jobId) return;
+    try {
+      const response = await fetch(API_BASE + "/api/clips/jobs/" + encodeURIComponent(jobId), {
+        headers: workspaceHeaders(),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.detail || "Could not load Clip Lab job.");
+      state.clipJob = payload;
+      if ((state.route.split("?")[0] || "/") === "/clips") render();
+      if (!["completed", "failed"].includes(payload.status)) {
+        clearTimeout(state.clipPollTimer);
+        state.clipPollTimer = setTimeout(() => pollClipJob(jobId), 2500);
+      }
+    } catch (error) {
+      state.clipJob = { ...(state.clipJob || {}), status: "failed", error: error?.message || "Clip Lab polling failed." };
+      if ((state.route.split("?")[0] || "/") === "/clips") render();
+    }
+  }
+
+  async function downloadClipFile(filename) {
+    const job = state.clipJob;
+    if (!job?.id) return;
+    const response = await fetch(
+      API_BASE + "/api/clips/jobs/" + encodeURIComponent(job.id) + "/files/" + encodeURIComponent(filename),
+      { headers: workspaceHeaders() }
+    );
+    if (!response.ok) {
+      let payload = {};
+      try { payload = await response.json(); } catch (_) {}
+      throw new Error(payload.detail || "Could not download Clip Lab output.");
+    }
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }
+
   function workflowGate() {
     if (state.workflowLoading && !state.workflowLoaded) {
       return `<div class="card" style="padding:16px"><div class="skel"></div><div class="skel"></div><div class="skel"></div></div>`;
@@ -2715,6 +2893,9 @@
     } else if (path === "/ideas") {
       title = "Ideas";
       body = ideas();
+    } else if (path === "/clips") {
+      title = "Clip Lab";
+      body = clipLab();
     } else if (path === "/lab") {
       title = "Experiments";
       body = lab();
@@ -2844,6 +3025,65 @@
         },
       });
     }
+    const clipForm = document.getElementById("clipLabForm");
+    if (clipForm) {
+      clipForm.onsubmit = async (event) => {
+        event.preventDefault();
+        const form = event.currentTarget;
+        const file = form.video?.files?.[0];
+        if (!file) {
+          toast("Choose a video first");
+          return;
+        }
+        if (state.creatorAgentConfigured && !confirmAiShare(
+          "clip-lab",
+          "Only the timestamped transcript from your uploaded video may be sent to the configured AI provider to rank candidate moments. The video file itself stays on the Christina Lab worker."
+        )) return;
+
+        const data = new FormData();
+        data.append("video", file);
+        data.append("clipCount", String(form.clipCount.value || 3));
+        data.append("minSeconds", String(form.minSeconds.value || 20));
+        data.append("maxSeconds", String(form.maxSeconds.value || 45));
+        data.append("burnCaptions", String(form.burnCaptions.value !== "false"));
+
+        state.clipUploading = true;
+        render();
+        try {
+          const response = await fetch(API_BASE + "/api/clips/jobs", {
+            method: "POST",
+            headers: workspaceHeaders(),
+            body: data,
+          });
+          const payload = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(payload.detail || "Clip Lab could not start.");
+          state.clipJob = payload;
+          state.clipUploading = false;
+          render();
+          pollClipJob(payload.id);
+        } catch (error) {
+          state.clipUploading = false;
+          toast(error?.message || "Clip Lab could not start");
+          render();
+        }
+      };
+    }
+    document.getElementById("clipReset")?.addEventListener("click", () => {
+      clearTimeout(state.clipPollTimer);
+      state.clipJob = null;
+      state.clipUploading = false;
+      render();
+    });
+    document.querySelectorAll("[data-clip-download]").forEach((button) => {
+      button.onclick = async () => {
+        try {
+          await downloadClipFile(button.dataset.clipDownload);
+        } catch (error) {
+          toast(error?.message || "Could not download clip");
+        }
+      };
+    });
+
     document.getElementById("newIdea")?.addEventListener("click", () => openIdeaModal(null));
     document.getElementById("newExperiment")?.addEventListener("click", () => openExperimentModal(null));
     document.querySelectorAll("[data-docs]").forEach((button) => {
